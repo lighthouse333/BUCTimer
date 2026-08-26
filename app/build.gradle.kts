@@ -29,8 +29,8 @@ android {
         applicationId = "com.example.timetable"
         minSdk = 24
         targetSdk = 37
-        versionCode = 8
-        versionName = "1.5.0"
+        versionCode = 9
+        versionName = "1.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

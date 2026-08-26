@@ -493,7 +493,10 @@ fun TimetableScreen(
                 onDismiss = { showTimeSettingsDialog = false },
                 onConfirm = { newPeriods ->
                     viewModel.saveSettings(
-                        settings.copy(classPeriods = newPeriods)
+                        settings.copy(
+                            sectionCount = newPeriods.size,
+                            classPeriods = newPeriods
+                        )
                     )
                     showTimeSettingsDialog = false
                 }

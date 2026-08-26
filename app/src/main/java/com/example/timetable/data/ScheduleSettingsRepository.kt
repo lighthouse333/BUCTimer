@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.timetable.model.ClassPeriod
+import com.example.timetable.model.MAX_SECTION
 import com.example.timetable.model.ScheduleSettings
 import com.example.timetable.model.createDefaultScheduleSettings
 import kotlinx.coroutines.flow.Flow
@@ -47,7 +48,7 @@ class ScheduleSettingsRepository(
             val sectionCount = preferences[intPreferencesKey("section_count_$timetableId")]
                 ?: preferences[Keys.sectionCount].takeIf { timetableId == 1L }
             val validatedSectionCount = sectionCount
-                ?.coerceIn(1, 12)
+                ?.coerceIn(1, MAX_SECTION)
                 ?: defaults.sectionCount
             val encodedPeriods = preferences[stringPreferencesKey("class_periods_$timetableId")]
                 ?: preferences[Keys.classPeriods].takeIf { timetableId == 1L }

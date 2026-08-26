@@ -4,6 +4,30 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 
+const val MAX_SECTION = 13
+
+enum class TimePreset(val displayName: String) {
+    BUCT("北京化工大学")
+}
+
+fun createPresetPeriods(preset: TimePreset): List<ClassPeriod> = when (preset) {
+    TimePreset.BUCT -> listOf(
+        ClassPeriod(1, 480, 525),   // 08:00-08:45
+        ClassPeriod(2, 530, 575),   // 08:50-09:35
+        ClassPeriod(3, 590, 635),   // 09:50-10:35
+        ClassPeriod(4, 645, 690),   // 10:45-11:30
+        ClassPeriod(5, 695, 740),   // 11:35-12:20
+        ClassPeriod(6, 780, 825),   // 13:00-13:45
+        ClassPeriod(7, 830, 875),   // 13:50-14:35
+        ClassPeriod(8, 885, 930),   // 14:45-15:30
+        ClassPeriod(9, 940, 985),   // 15:40-16:25
+        ClassPeriod(10, 990, 1035), // 16:30-17:15
+        ClassPeriod(11, 1080, 1125),// 18:00-18:45
+        ClassPeriod(12, 1130, 1175),// 18:50-19:35
+        ClassPeriod(13, 1180, 1225) // 19:40-20:25
+    )
+}
+
 enum class WeekType(val displayName: String) {
     EVERY_WEEK("每周"),
     ODD_WEEK("单周"),
@@ -30,8 +54,8 @@ data class Course(
         get() = activeWeeks.max()
 
     init {
-        require(startSection in 1..12) { "开始节次必须在 1 到 12 之间" }
-        require(endSection in startSection..12) { "结束节次不能早于开始节次" }
+        require(startSection in 1..MAX_SECTION) { "开始节次必须在 1 到 $MAX_SECTION 之间" }
+        require(endSection in startSection..MAX_SECTION) { "结束节次不能早于开始节次" }
         require(activeWeeks.isNotEmpty()) { "课程至少需要一个有效周次" }
         require(activeWeeks.all { it >= 1 }) { "有效周次必须大于 0" }
         require((customStartMinutes == null) == (customEndMinutes == null)) {

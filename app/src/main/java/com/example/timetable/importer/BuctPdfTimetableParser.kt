@@ -3,6 +3,7 @@ package com.example.timetable.importer
 import android.content.Context
 import android.net.Uri
 import com.example.timetable.model.Course
+import com.example.timetable.model.MAX_SECTION
 import com.example.timetable.model.parseActiveWeeks
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -169,7 +170,7 @@ class BuctPdfTimetableParser(private val context: Context) : TimetableFileParser
                     warnings += "$weekDay $name：无法识别周次“$weeksText”"
                     return@mapIndexedNotNull null
                 }
-                if (endSection > 12) {
+                if (endSection > MAX_SECTION) {
                     warnings += "$weekDay $name：节次超出当前支持范围"
                     return@mapIndexedNotNull null
                 }

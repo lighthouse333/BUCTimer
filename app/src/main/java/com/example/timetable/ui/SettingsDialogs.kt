@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,6 +25,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.timetable.model.ClassPeriod
+import com.example.timetable.model.MAX_SECTION
+import com.example.timetable.model.TimePreset
+import com.example.timetable.model.createPresetPeriods
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -121,7 +125,7 @@ fun SectionCountDialog(
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
                     TextButton(
-                        enabled = selectedCount < 12,
+                        enabled = selectedCount < MAX_SECTION,
                         onClick = { selectedCount++; errorMessage = null }
                     ) { Text("+") }
                 }
@@ -149,12 +153,13 @@ fun TimeSettingsDialog(
     onDismiss: () -> Unit,
     onConfirm: (List<ClassPeriod>) -> Unit
 ) {
-    val startTimes = remember(currentPeriods) {
+    var periodCount by remember { mutableIntStateOf(currentPeriods.size) }
+    val startTimes = remember {
         mutableStateListOf<String>().apply {
             addAll(currentPeriods.map { formatMinutesAsTime(it.startMinutes) })
         }
     }
-    val endTimes = remember(currentPeriods) {
+    val endTimes = remember {
         mutableStateListOf<String>().apply {
             addAll(currentPeriods.map { formatMinutesAsTime(it.endMinutes) })
         }
@@ -166,7 +171,25 @@ fun TimeSettingsDialog(
         title = { Text("设置每节课时间") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                currentPeriods.indices.forEach { index ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 12.dp)
+                ) {
+                    TimePreset.entries.forEach { preset ->
+                        TextButton(onClick = {
+                            val presetPeriods = createPresetPeriods(preset)
+                            periodCount = presetPeriods.size
+                            startTimes.clear()
+                            endTimes.clear()
+                            presetPeriods.forEach {
+                                startTimes += formatMinutesAsTime(it.startMinutes)
+                                endTimes += formatMinutesAsTime(it.endMinutes)
+                            }
+                            errorMessage = null
+                        }) { Text(preset.displayName) }
+                    }
+                }
+                (0 until periodCount).forEach { index ->
                     Text(
                         text = "第${index + 1}节",
                         fontWeight = FontWeight.Bold,
@@ -198,7 +221,7 @@ fun TimeSettingsDialog(
                 onClick = {
                     val parsedPeriods = mutableListOf<ClassPeriod>()
                     var validationError: String? = null
-                    for (index in currentPeriods.indices) {
+                    for (index in 0 until periodCount) {
                         val start = parseTimeToMinutes(startTimes[index])
                         val end = parseTimeToMinutes(endTimes[index])
                         validationError = when {

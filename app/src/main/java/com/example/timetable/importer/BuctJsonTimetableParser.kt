@@ -1,6 +1,7 @@
 package com.example.timetable.importer
 
 import com.example.timetable.model.Course
+import com.example.timetable.model.MAX_SECTION
 import com.example.timetable.model.parseActiveWeeks
 import org.json.JSONObject
 
@@ -148,7 +149,7 @@ object BuctJsonTimetableParser {
             2 -> bounds[1].toIntOrNull() ?: return null
             else -> return null
         }
-        if (start !in 1..12 || end !in start..12) return null
+        if (start !in 1..MAX_SECTION || end !in start..MAX_SECTION) return null
         return start to end
     }
 }

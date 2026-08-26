@@ -2,7 +2,7 @@
 
 一个使用 Kotlin 和 Jetpack Compose 开发的大学生课表 Android 应用。
 
-当前版本为 `v1.4.0`，已经覆盖课程管理、多课表、按周查看、课表文件导入、桌面小组件和应用内更新等核心流程。
+当前版本为 `v1.5.0`，已经覆盖课程管理、多课表、按周查看、课表文件导入、桌面小组件和应用内更新等核心流程。
 
 [查看更新记录](CHANGELOG.md) · [下载正式版本](https://github.com/lighthouse333/ClassSchedule/releases) · [反馈问题](https://github.com/lighthouse333/ClassSchedule/issues)
 

@@ -10,11 +10,14 @@ import com.example.timetable.data.ScheduleSettingsRepository
 import com.example.timetable.data.TimetableRepository
 import com.example.timetable.data.TimetableEntity
 import com.example.timetable.importer.BuctPdfTimetableParser
+import com.example.timetable.importer.BuctJsonTimetableParser
 import com.example.timetable.importer.NenuPdfTimetableParser
 import com.example.timetable.importer.ParsedTimetable
 import com.example.timetable.importer.TimetableFileParser
 import com.example.timetable.importer.TimetableImportSchool
 import com.example.timetable.importer.ZjuXlsxTimetableParser
+import com.example.timetable.jw.JwApiClient
+import com.example.timetable.jw.JwSessionStore
 import com.example.timetable.model.Course
 import com.example.timetable.model.ScheduleSettings
 import com.example.timetable.model.ClassPeriod
@@ -36,13 +39,13 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-sealed interface PdfImportState {
-    data object Idle : PdfImportState
-    data object Loading : PdfImportState
-    data object Saving : PdfImportState
-    data class Success(val timetable: ParsedTimetable) : PdfImportState
-    data class Completed(val importedCount: Int) : PdfImportState
-    data class Error(val message: String) : PdfImportState
+sealed interface TimetableImportState {
+    data object Idle : TimetableImportState
+    data class Loading(val message: String) : TimetableImportState
+    data object Saving : TimetableImportState
+    data class Success(val timetable: ParsedTimetable) : TimetableImportState
+    data class Completed(val importedCount: Int) : TimetableImportState
+    data class Error(val message: String) : TimetableImportState
 }
 
 sealed interface AppUpdateUiState {
@@ -63,6 +66,7 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
     )
     private val timetableRepository = TimetableRepository(database.timetableDao())
     private val settingsRepository = ScheduleSettingsRepository(application)
+    private val jwSessionStore = JwSessionStore(application)
     private val updateProvider = GitHubUpdateProvider(application)
     private val updatePreferences = application.getSharedPreferences(
         "app_update_settings",
@@ -76,8 +80,11 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
         TimetableImportSchool.ZHEJIANG_UNIVERSITY to
             ZjuXlsxTimetableParser(application)
     )
-    private val _pdfImportState = MutableStateFlow<PdfImportState>(PdfImportState.Idle)
-    val pdfImportState: StateFlow<PdfImportState> = _pdfImportState.asStateFlow()
+    private val _timetableImportState = MutableStateFlow<TimetableImportState>(
+        TimetableImportState.Idle
+    )
+    val timetableImportState: StateFlow<TimetableImportState> =
+        _timetableImportState.asStateFlow()
     private val _updateState = MutableStateFlow<AppUpdateUiState>(AppUpdateUiState.Idle)
     val updateState: StateFlow<AppUpdateUiState> = _updateState.asStateFlow()
     private val _automaticUpdateChecks = MutableStateFlow(
@@ -299,29 +306,52 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun parseTimetableFile(uri: Uri, school: TimetableImportSchool) {
         viewModelScope.launch {
-            _pdfImportState.value = PdfImportState.Loading
-            _pdfImportState.value = try {
+            _timetableImportState.value = TimetableImportState.Loading("正在本地读取课表文件……")
+            _timetableImportState.value = try {
                 val parsed = withContext(Dispatchers.IO) {
                     requireNotNull(timetableParsers[school]) {
                         "暂不支持${school.displayName}的课表格式"
                     }.parse(uri, MAX_IMPORT_WEEKS)
                 }
-                PdfImportState.Success(parsed)
+                TimetableImportState.Success(parsed)
             } catch (error: Exception) {
-                PdfImportState.Error(error.message ?: "课表解析失败")
+                TimetableImportState.Error(error.message ?: "课表解析失败")
             }
         }
     }
 
-    fun dismissPdfImportResult() {
-        _pdfImportState.value = PdfImportState.Idle
+    fun dismissImportResult() {
+        _timetableImportState.value = TimetableImportState.Idle
+    }
+
+    fun hasSavedJwSession(): Boolean = jwSessionStore.loadCookies() != null
+
+    fun savedJwSession(): String? = jwSessionStore.loadCookies()
+
+    fun importOnlineTimetable(cookies: String, studentId: String, year: Int, semester: Int) {
+        viewModelScope.launch {
+            _timetableImportState.value = TimetableImportState.Loading("正在在线拉取课表……")
+            _timetableImportState.value = try {
+                val parsed = withContext(Dispatchers.IO) {
+                    val xqm = requireNotNull(JwApiClient.xqmForSemester(semester)) {
+                        "无效的学期代码：$semester"
+                    }
+                    val json = JwApiClient.fetchSchedule(cookies, studentId, year, xqm)
+                    BuctJsonTimetableParser.parseBuctJson(json, MAX_IMPORT_WEEKS)
+                }
+                jwSessionStore.saveCookies(cookies)
+                TimetableImportState.Success(parsed)
+            } catch (error: Exception) {
+                TimetableImportState.Error(error.message ?: "课表查询失败")
+            }
+        }
     }
 
     fun importCourses(importedCourses: List<Course>) {
         if (importedCourses.isEmpty()) return
         viewModelScope.launch {
-            _pdfImportState.value = PdfImportState.Saving
-            _pdfImportState.value = try {
+            _timetableImportState.value = TimetableImportState.Saving
+            _timetableImportState.value = try {
                 val current = settings.value
                 val requiredSectionCount = maxOf(
                     current.sectionCount,
@@ -356,9 +386,9 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
                 }
                 repository.addAll(selectedTimetableId.value, importedCourses)
                 ScheduleWidgetController.updateAll(getApplication())
-                PdfImportState.Completed(importedCourses.size)
+                TimetableImportState.Completed(importedCourses.size)
             } catch (error: Exception) {
-                PdfImportState.Error(error.message ?: "课程导入失败")
+                TimetableImportState.Error(error.message ?: "课程导入失败")
             }
         }
     }

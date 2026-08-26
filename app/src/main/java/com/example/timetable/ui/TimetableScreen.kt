@@ -1,5 +1,14 @@
 package com.example.timetable.ui
 
+import android.net.http.SslError
+import android.webkit.CookieManager
+import android.webkit.SslErrorHandler
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -36,6 +45,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -55,6 +65,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.timetable.model.Course
 import com.example.timetable.data.TimetableEntity
 import com.example.timetable.importer.TimetableImportSchool
@@ -77,7 +90,7 @@ fun TimetableScreen(
     val timetables by viewModel.timetables.collectAsState()
     val currentTimetable by viewModel.currentTimetable.collectAsState()
     val selectedTimetableId by viewModel.selectedTimetableId.collectAsState()
-    val pdfImportState by viewModel.pdfImportState.collectAsState()
+    val timetableImportState by viewModel.timetableImportState.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
     val automaticUpdateChecks by viewModel.automaticUpdateChecks.collectAsState()
     val updatePopupReminders by viewModel.updatePopupReminders.collectAsState()
@@ -101,6 +114,11 @@ fun TimetableScreen(
     var showTimetableDialog by remember { mutableStateOf(false) }
     var showCreateTimetableDialog by remember { mutableStateOf(false) }
     var showAboutSettings by remember { mutableStateOf(false) }
+    var showOnlineImportDialog by remember { mutableStateOf(false) }
+    var showOnlineImportWeb by remember { mutableStateOf(false) }
+    var onlineImportStudentId by remember { mutableStateOf("") }
+    var onlineImportYear by remember { mutableStateOf(LocalDate.now(ZoneId.systemDefault()).year) }
+    var onlineImportSemester by remember { mutableStateOf(1) }
     var timetablePendingRename by remember { mutableStateOf<TimetableEntity?>(null) }
     var timetablePendingDeletion by remember { mutableStateOf<TimetableEntity?>(null) }
     var showTopMenu by remember { mutableStateOf(false) }
@@ -233,6 +251,13 @@ fun TimetableScreen(
                         }
                     )
                     DropdownMenuItem(
+                        text = { Text("在线导入（测试中）") },
+                        onClick = {
+                            showTopMenu = false
+                            showOnlineImportDialog = true
+                        }
+                    )
+                    DropdownMenuItem(
                         text = { Text("设置每日节数") },
                         onClick = {
                             showTopMenu = false
@@ -327,20 +352,20 @@ fun TimetableScreen(
             )
         }
 
-        when (val state = pdfImportState) {
-            PdfImportState.Idle -> Unit
-            PdfImportState.Loading -> AlertDialog(
+        when (val state = timetableImportState) {
+            TimetableImportState.Idle -> Unit
+            is TimetableImportState.Loading -> AlertDialog(
                 onDismissRequest = {},
-                title = { Text("正在解析课表") },
+                title = { Text("正在获取课表") },
                 text = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.padding(end = 16.dp))
-                        Text("正在本地读取 PDF，请稍候……")
+                        Text(state.message)
                     }
                 },
                 confirmButton = {}
             )
-            PdfImportState.Saving -> AlertDialog(
+            TimetableImportState.Saving -> AlertDialog(
                 onDismissRequest = {},
                 title = { Text("正在导入课程") },
                 text = {
@@ -351,26 +376,61 @@ fun TimetableScreen(
                 },
                 confirmButton = {}
             )
-            is PdfImportState.Error -> AlertDialog(
-                onDismissRequest = viewModel::dismissPdfImportResult,
-                title = { Text("无法识别课表") },
+            is TimetableImportState.Error -> AlertDialog(
+                onDismissRequest = viewModel::dismissImportResult,
+                title = { Text("无法导入课表") },
                 text = { Text(state.message) },
                 confirmButton = {
-                    TextButton(onClick = viewModel::dismissPdfImportResult) { Text("确定") }
+                    TextButton(onClick = viewModel::dismissImportResult) { Text("确定") }
                 }
             )
-            is PdfImportState.Success -> PdfRecognitionResultDialog(
+            is TimetableImportState.Success -> TimetableImportPreviewDialog(
                 result = state.timetable,
                 existingCourses = courses,
-                onDismiss = viewModel::dismissPdfImportResult,
+                onDismiss = viewModel::dismissImportResult,
                 onImport = viewModel::importCourses
             )
-            is PdfImportState.Completed -> AlertDialog(
-                onDismissRequest = viewModel::dismissPdfImportResult,
+            is TimetableImportState.Completed -> AlertDialog(
+                onDismissRequest = viewModel::dismissImportResult,
                 title = { Text("导入完成") },
                 text = { Text("已成功导入 ${state.importedCount} 门课程。") },
                 confirmButton = {
-                    TextButton(onClick = viewModel::dismissPdfImportResult) { Text("完成") }
+                    TextButton(onClick = viewModel::dismissImportResult) { Text("完成") }
+                }
+            )
+        }
+
+        if (showOnlineImportDialog) {
+            OnlineImportInfoDialog(
+                hasSavedSession = viewModel.hasSavedJwSession(),
+                onDismiss = { showOnlineImportDialog = false },
+                onLogin = { studentId, year, semester ->
+                    onlineImportStudentId = studentId
+                    onlineImportYear = year
+                    onlineImportSemester = semester
+                    showOnlineImportDialog = false
+                    showOnlineImportWeb = true
+                },
+                onUseSavedSession = { studentId, year, semester ->
+                    showOnlineImportDialog = false
+                    viewModel.savedJwSession()?.let { cookies ->
+                        viewModel.importOnlineTimetable(cookies, studentId, year, semester)
+                    }
+                }
+            )
+        }
+
+        if (showOnlineImportWeb) {
+            OnlineImportWebDialog(
+                onCancel = { showOnlineImportWeb = false },
+                onLoginSuccess = { cookies ->
+                    showOnlineImportWeb = false
+                    viewModel.importOnlineTimetable(
+                        cookies,
+                        onlineImportStudentId,
+                        onlineImportYear,
+                        onlineImportSemester
+                    )
                 }
             )
         }
@@ -889,6 +949,172 @@ private fun CreateTimetableDialog(
 }
 
 @Composable
+private fun OnlineImportInfoDialog(
+    hasSavedSession: Boolean,
+    onDismiss: () -> Unit,
+    onLogin: (studentId: String, year: Int, semester: Int) -> Unit,
+    onUseSavedSession: (studentId: String, year: Int, semester: Int) -> Unit
+) {
+    var studentId by remember { mutableStateOf("") }
+    var year by remember { mutableStateOf(LocalDate.now(ZoneId.systemDefault()).year.toString()) }
+    var semester by remember { mutableStateOf(1) }
+    val yearValue = year.trim().toIntOrNull()
+    val valid = studentId.isNotBlank() && yearValue != null
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("在线导入课表") },
+        text = {
+            Column {
+                Text("先在浏览器中完成北化统一认证登录（密码只交给学校，App 不读取）。")
+                OutlinedTextField(
+                    value = studentId,
+                    onValueChange = { studentId = it },
+                    label = { Text("学号") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = year,
+                    onValueChange = { year = it },
+                    label = { Text("学年起始年（如 2026）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    listOf(1 to "秋冬", 2 to "春夏", 3 to "暑假").forEach { (code, label) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { semester = code }
+                        ) {
+                            RadioButton(selected = semester == code, onClick = { semester = code })
+                            Text(label)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row {
+                if (hasSavedSession) {
+                    TextButton(
+                        enabled = valid,
+                        onClick = { onUseSavedSession(studentId.trim(), yearValue!!, semester) }
+                    ) { Text("直接查询") }
+                }
+                TextButton(
+                    enabled = valid,
+                    onClick = { onLogin(studentId.trim(), yearValue!!, semester) }
+                ) { Text(if (hasSavedSession) "重新登录" else "登录") }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
+}
+
+private const val JW_WEB_BASE = "https://jwglxt.buct.edu.cn"
+
+@Composable
+private fun OnlineImportWebDialog(
+    onCancel: () -> Unit,
+    onLoginSuccess: (cookies: String) -> Unit
+) {
+    var handled by remember { mutableStateOf(false) }
+    var webMessage by remember { mutableStateOf<String?>(null) }
+    fun proceed(cookies: String) {
+        if (!handled) {
+            handled = true
+            onLoginSuccess(cookies)
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onCancel,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnClickOutside = false
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "请在下方完成北化统一认证登录",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = {
+                    CookieManager.getInstance().flush()
+                    proceed(CookieManager.getInstance().getCookie(JW_WEB_BASE).orEmpty())
+                }) { Text("完成登录") }
+                TextButton(onClick = onCancel) { Text("取消") }
+            }
+            webMessage?.let { message ->
+                Text(
+                    "页面加载失败：$message",
+                    color = Color.Red,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+            AndroidView(
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                        CookieManager.getInstance().setAcceptCookie(true)
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                super.onPageFinished(view, url)
+                                if (url != null &&
+                                    url.startsWith(JW_WEB_BASE) &&
+                                    url.contains("/jwglxt/")
+                                ) {
+                                    CookieManager.getInstance().flush()
+                                    proceed(CookieManager.getInstance().getCookie(JW_WEB_BASE).orEmpty())
+                                }
+                            }
+                            override fun onReceivedError(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                                error: WebResourceError?
+                            ) {
+                                super.onReceivedError(view, request, error)
+                                if (request?.isForMainFrame == true && webMessage == null) {
+                                    webMessage = error?.description?.toString()
+                                        ?: ("错误码 " + (error?.errorCode ?: -1))
+                                }
+                            }
+                            override fun onReceivedSslError(
+                                view: WebView?,
+                                handler: SslErrorHandler?,
+                                error: SslError?
+                            ) {
+                                if (webMessage == null) {
+                                    webMessage = "SSL 证书校验失败（错误码 ${error?.primaryError}），已阻止加载"
+                                }
+                                handler?.cancel()
+                            }
+                        }
+                        loadUrl("$JW_WEB_BASE/")
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+}
+
+@Composable
 private fun ImportSchoolDialog(
     schools: List<TimetableImportSchool>,
     onDismiss: () -> Unit,
@@ -931,7 +1157,7 @@ private fun ImportSchoolDialog(
 }
 
 @Composable
-private fun PdfRecognitionResultDialog(
+private fun TimetableImportPreviewDialog(
     result: com.example.timetable.importer.ParsedTimetable,
     existingCourses: List<Course>,
     onDismiss: () -> Unit,
@@ -1003,7 +1229,8 @@ private fun PdfRecognitionResultDialog(
                             Text(course.name, fontWeight = FontWeight.Bold)
                             Text(
                                 "${course.weekDay} ${course.startSection}-${course.endSection}节 · " +
-                                    "${formatActiveWeeks(course.activeWeeks)}周"
+                                    "${formatActiveWeeks(course.activeWeeks)}周" +
+                                    (weekTypeLabel(course.activeWeeks)?.let { "（$it）" } ?: "")
                             )
                             Text("${course.classroom} · ${course.teacher}", color = Color.Gray)
                             when {
@@ -1168,6 +1395,14 @@ private fun TimetableCourseBlock(
                 lineHeight = 10.sp,
                 fontWeight = FontWeight.Bold
             )
+            weekTypeLabel(course.activeWeeks)?.let { label ->
+                Text(
+                    text = label,
+                    fontSize = 7.sp,
+                    lineHeight = 8.sp,
+                    color = Color(0xFF757575)
+                )
+            }
             Text(
                 text = listOf(
                     course.classroom,
@@ -1180,6 +1415,18 @@ private fun TimetableCourseBlock(
                 lineHeight = 9.sp
             )
         }
+    }
+}
+
+private fun weekTypeLabel(weeks: Set<Int>): String? {
+    if (weeks.isEmpty()) return null
+    val sorted = weeks.sorted()
+    val isConsecutive = sorted.size == sorted.last() - sorted.first() + 1
+    if (!isConsecutive) return null
+    return when {
+        sorted.all { it % 2 == 1 } -> "单周"
+        sorted.all { it % 2 == 0 } -> "双周"
+        else -> null
     }
 }
 

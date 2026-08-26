@@ -73,8 +73,11 @@ fun createActiveWeeks(
 fun parseActiveWeeks(text: String, totalWeeks: Int): Set<Int>? {
     val normalized = text
         .trim()
+        .replace("第", "")
         .replace("周", "")
         .replace(" ", "")
+        .replace('（', '(')
+        .replace('）', ')')
         .replace('，', ',')
         .replace('、', ',')
         .replace('—', '-')
@@ -87,7 +90,13 @@ fun parseActiveWeeks(text: String, totalWeeks: Int): Set<Int>? {
     val result = sortedSetOf<Int>()
     for (part in normalized.split(',')) {
         if (part.isEmpty()) return null
-        val bounds = part.split('-')
+        val oddEven: ((Int) -> Boolean)? = when {
+            part.endsWith("(单)") -> { w -> w % 2 == 1 }
+            part.endsWith("(双)") -> { w -> w % 2 == 0 }
+            else -> null
+        }
+        val base = part.removeSuffix("(单)").removeSuffix("(双)")
+        val bounds = base.split('-')
         val start = bounds.firstOrNull()?.toIntOrNull() ?: return null
         val end = when (bounds.size) {
             1 -> start
@@ -95,7 +104,8 @@ fun parseActiveWeeks(text: String, totalWeeks: Int): Set<Int>? {
             else -> return null
         }
         if (start !in 1..totalWeeks || end !in start..totalWeeks) return null
-        result.addAll(start..end)
+        val weeks = (start..end).filter { oddEven?.invoke(it) ?: true }
+        result.addAll(weeks)
     }
     return result
 }

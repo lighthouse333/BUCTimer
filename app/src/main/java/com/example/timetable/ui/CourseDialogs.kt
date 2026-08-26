@@ -100,7 +100,11 @@ fun CourseDetailDialog(
                         "${formatMinutesAsTime(start)}-${formatMinutesAsTime(requireNotNull(course.customEndMinutes))}"
                     } ?: "第 ${course.startSection}-${course.endSection} 节"
                 )
-                CourseDetailRow("周次", "${formatActiveWeeks(course.activeWeeks)} 周")
+                CourseDetailRow("周次", buildString {
+                    append(formatActiveWeeks(course.activeWeeks))
+                    append(" 周")
+                    courseOddEvenLabel(course.activeWeeks)?.let { append("（$it）") }
+                })
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
@@ -382,4 +386,16 @@ fun DeleteCourseDialog(
             }
         }
     )
+}
+
+private fun courseOddEvenLabel(weeks: Set<Int>): String? {
+    if (weeks.isEmpty()) return null
+    val sorted = weeks.sorted()
+    val isConsecutive = sorted.size == sorted.last() - sorted.first() + 1
+    if (!isConsecutive) return null
+    return when {
+        sorted.all { it % 2 == 1 } -> "单周"
+        sorted.all { it % 2 == 0 } -> "双周"
+        else -> null
+    }
 }

@@ -8,8 +8,10 @@ import com.example.timetable.model.formatActiveWeeks
 import com.example.timetable.model.parseActiveWeeks
 import com.example.timetable.model.weekSchedulesOverlap
 import com.example.timetable.importer.BuctPdfTimetableParser
+import com.example.timetable.importer.BuctJsonTimetableParser
 import com.example.timetable.importer.NenuPdfTimetableParser
 import com.example.timetable.importer.ZjuXlsxTimetableParser
+import com.example.timetable.jw.JwApiClient
 import com.example.timetable.data.toEntity
 import com.example.timetable.data.toDomain
 import com.example.timetable.update.parseReleaseVersionCode
@@ -74,6 +76,22 @@ class ExampleUnitTest {
 
         assertEquals(setOf(1, 2, 3, 5, 7, 8), weeks)
         assertEquals("1-3,5,7-8", formatActiveWeeks(requireNotNull(weeks)))
+    }
+
+    @Test
+    fun parsesSingleWeekFormats() {
+        assertEquals(setOf(1), parseActiveWeeks("1周", 20))
+        assertEquals(setOf(5), parseActiveWeeks("5周", 20))
+        assertEquals(setOf(1), parseActiveWeeks("第1周", 20))
+        assertEquals(setOf(5), parseActiveWeeks("第5周", 20))
+    }
+
+    @Test
+    fun parsesWeeksWithOddEvenMarkers() {
+        assertEquals(
+            setOf(1, 2, 4, 5, 7, 8, 11, 13, 14, 16, 17),
+            parseActiveWeeks("1-2周,4-5周,7-8周,11-13周(单),14-16周(双),17周", 20)
+        )
     }
 
     @Test
@@ -180,6 +198,29 @@ class ExampleUnitTest {
         assertEquals("一教B阶-303", courses.single().classroom)
         assertEquals("李志强", courses.single().teacher)
         assertEquals(((1..9) + (11..16)).toSet(), courses.single().activeWeeks)
+    }
+
+    @Test
+    fun parsesBuctCourseCellWithOddEvenWeeks() {
+        val courses = BuctPdfTimetableParser.parseCourseColumn(
+            text = """
+                大学英语3★
+                (3-4节)1-2周,4-5周,7-8周,11-
+                13周(单),14-16周(双),17周
+                /校区:北区/场地:二教D-
+                308/教师:王晓召/教学班:大
+                学英语3-0016
+            """.trimIndent(),
+            weekDay = "周三",
+            totalWeeks = 20
+        )
+
+        assertEquals(1, courses.size)
+        assertEquals("大学英语3", courses.single().name)
+        assertEquals(
+            setOf(1, 2, 4, 5, 7, 8, 11, 13, 14, 16, 17),
+            courses.single().activeWeeks
+        )
     }
 
     @Test
@@ -329,4 +370,94 @@ class ExampleUnitTest {
         assertEquals((9..16).toSet(), ZjuXlsxTimetableParser.activeWeeksForTerm("冬", 30))
         assertEquals((1..16).toSet(), ZjuXlsxTimetableParser.activeWeeksForTerm("春夏", 30))
     }
+
+    @Test
+    fun parsesBuctJsonWeeksWithOddEvenMarkers() {
+        assertEquals(
+            setOf(11, 13, 14, 16, 17),
+            BuctJsonTimetableParser.parseWeekText("11-13周(单),14-16周(双),17周", 20)
+        )
+        assertEquals(
+            ((1..9) + (11..17)).toSet(),
+            BuctJsonTimetableParser.parseWeekText("1-9周,11-17周", 20)
+        )
+        assertEquals(
+            setOf(1, 2, 4, 5, 7, 8, 11, 13, 14, 16, 17),
+            BuctJsonTimetableParser.parseWeekText(
+                "1-2周,4-5周,7-8周,11-13周(单),14-16周(双),17周",
+                20
+            )
+        )
+    }
+
+    @Test
+    fun mapsBuctJsonDayNamesToShortForm() {
+        assertEquals("周一", BuctJsonTimetableParser.dayToWeekDay("星期一"))
+        assertEquals("周日", BuctJsonTimetableParser.dayToWeekDay("星期天"))
+        assertEquals("周日", BuctJsonTimetableParser.dayToWeekDay("星期日"))
+        assertNull(BuctJsonTimetableParser.dayToWeekDay("Monday"))
+    }
+
+    @Test
+    fun parsesBuctJsonScheduleIntoCourses() {
+        val json = """
+            {
+              "student": { "name": "测试学生", "academicYear": "2026-2027", "semester": "1" },
+              "courses": [
+                {
+                  "name": "数字电子技术",
+                  "day": "星期二",
+                  "periods": "3-5",
+                  "weeks": "1-9周,11-17周",
+                  "location": "一教B阶-103",
+                  "teacher": "杜彬"
+                },
+                {
+                  "name": "大学物理实验(II)",
+                  "day": "星期一",
+                  "periods": "7-9",
+                  "weeks": "3-9周,11-16周",
+                  "teacher": "李童"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val timetable = BuctJsonTimetableParser.parseBuctJson(json, 30)
+
+        assertEquals("测试学生", timetable.title)
+        assertEquals("2026-2027学年第1学期", timetable.semester)
+        assertEquals(2, timetable.courses.size)
+
+        val first = timetable.courses.first { it.name == "数字电子技术" }
+        assertEquals("周二", first.weekDay)
+        assertEquals(3, first.startSection)
+        assertEquals(5, first.endSection)
+        assertEquals("一教B阶-103", first.classroom)
+        assertEquals("杜彬", first.teacher)
+        assertEquals(((1..9) + (11..17)).toSet(), first.activeWeeks)
+
+        val second = timetable.courses.first { it.name == "大学物理实验(II)" }
+        assertEquals("周一", second.weekDay)
+        assertEquals("无", second.classroom)
+        assertEquals(((3..9) + (11..16)).toSet(), second.activeWeeks)
+    }
+
+    @Test
+    fun mapsBuctSemesterCodesToJwXqm() {
+        assertEquals("3", JwApiClient.xqmForSemester(1))
+        assertEquals("12", JwApiClient.xqmForSemester(2))
+        assertEquals("16", JwApiClient.xqmForSemester(3))
+        assertNull(JwApiClient.xqmForSemester(4))
+    }
+
+    @Test
+    fun buildsBuctScheduleApiUrl() {
+        assertEquals(
+            "https://jwglxt.buct.edu.cn/jwglxt/kbcx/xskbcx_cxXsKb.html" +
+                "?gnmkdm=N2145&layout=default&su=2025050094&xnm=2026&xqm=3",
+            JwApiClient.scheduleUrl("2025050094", 2026, "3")
+        )
+    }
+
 }

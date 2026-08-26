@@ -105,6 +105,24 @@ keyPassword=本地密钥密码
 
 正式签名 APK 将生成在 `app/build/outputs/apk/release/app-release.apk`。签名文件和密码不得提交到 GitHub。
 
+## 发布 Release
+
+发布 GitHub Release 时，说明中必须包含 `versionCode`，否则应用内的自动更新功能无法检测到新版本。支持的格式：
+
+```
+versionCode: 8
+versionCode：8
+versionCode = 8
+```
+
+或在标题中注明：
+
+```
+v1.5.0（versionCode 8）
+```
+
+发布前同步更新 `app/build.gradle.kts` 中的 `versionCode` 和 `versionName`，以及 `CHANGELOG.md`。
+
 ## 开发计划
 
 后续计划包括北京化工大学教务系统在线导入、通用学校适配器、课程与上课安排模型拆分，以及安全的课表差异同步。详细设计与实施清单见 [Issue #18](https://github.com/lighthouse333/ClassSchedule/issues/18)。

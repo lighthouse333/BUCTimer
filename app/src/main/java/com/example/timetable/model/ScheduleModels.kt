@@ -14,17 +14,16 @@ fun createPresetPeriods(preset: TimePreset): List<ClassPeriod> = when (preset) {
     TimePreset.BUCT -> listOf(
         ClassPeriod(1, 480, 525),   // 08:00-08:45
         ClassPeriod(2, 530, 575),   // 08:50-09:35
-        ClassPeriod(3, 590, 635),   // 09:50-10:35
-        ClassPeriod(4, 645, 690),   // 10:45-11:30
-        ClassPeriod(5, 695, 740),   // 11:35-12:20
-        ClassPeriod(6, 780, 825),   // 13:00-13:45
-        ClassPeriod(7, 830, 875),   // 13:50-14:35
-        ClassPeriod(8, 885, 930),   // 14:45-15:30
-        ClassPeriod(9, 940, 985),   // 15:40-16:25
-        ClassPeriod(10, 990, 1035), // 16:30-17:15
-        ClassPeriod(11, 1080, 1125),// 18:00-18:45
-        ClassPeriod(12, 1130, 1175),// 18:50-19:35
-        ClassPeriod(13, 1180, 1225) // 19:40-20:25
+        ClassPeriod(3, 585, 630),   // 09:45-10:30
+        ClassPeriod(4, 640, 685),   // 10:40-11:25
+        ClassPeriod(5, 690, 735),   // 11:30-12:15
+        ClassPeriod(6, 810, 855),   // 13:30-14:15
+        ClassPeriod(7, 860, 905),   // 14:20-15:05
+        ClassPeriod(8, 915, 960),   // 15:15-16:00
+        ClassPeriod(9, 965, 1010),  // 16:05-16:50
+        ClassPeriod(10, 1080, 1125),// 18:00-18:45
+        ClassPeriod(11, 1130, 1175),// 18:50-19:35
+        ClassPeriod(12, 1180, 1225) // 19:40-20:25
     )
 }
 

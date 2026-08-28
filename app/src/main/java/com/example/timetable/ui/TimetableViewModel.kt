@@ -21,7 +21,9 @@ import com.example.timetable.jw.JwSessionStore
 import com.example.timetable.model.Course
 import com.example.timetable.model.ScheduleSettings
 import com.example.timetable.model.ClassPeriod
+import com.example.timetable.model.TimePreset
 import com.example.timetable.model.createDefaultScheduleSettings
+import com.example.timetable.model.createPresetPeriods
 import com.example.timetable.widget.ScheduleWidgetController
 import com.example.timetable.update.AppUpdateInfo
 import com.example.timetable.update.GitHubUpdateProvider
@@ -43,7 +45,10 @@ sealed interface TimetableImportState {
     data object Idle : TimetableImportState
     data class Loading(val message: String) : TimetableImportState
     data object Saving : TimetableImportState
-    data class Success(val timetable: ParsedTimetable) : TimetableImportState
+    data class Success(
+        val timetable: ParsedTimetable,
+        val timePreset: TimePreset? = null
+    ) : TimetableImportState
     data class Completed(val importedCount: Int) : TimetableImportState
     data class Error(val message: String) : TimetableImportState
 }
@@ -313,7 +318,14 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
                         "暂不支持${school.displayName}的课表格式"
                     }.parse(uri, MAX_IMPORT_WEEKS)
                 }
-                TimetableImportState.Success(parsed)
+                TimetableImportState.Success(
+                    timetable = parsed,
+                    timePreset = when (school) {
+                        TimetableImportSchool.BEIJING_UNIVERSITY_OF_CHEMICAL_TECHNOLOGY ->
+                            TimePreset.BUCT
+                        else -> null
+                    }
+                )
             } catch (error: Exception) {
                 TimetableImportState.Error(error.message ?: "课表解析失败")
             }
@@ -349,19 +361,23 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun importCourses(importedCourses: List<Course>) {
         if (importedCourses.isEmpty()) return
+        val importTimePreset =
+            (_timetableImportState.value as? TimetableImportState.Success)?.timePreset
         viewModelScope.launch {
             _timetableImportState.value = TimetableImportState.Saving
             _timetableImportState.value = try {
                 val current = settings.value
+                val presetPeriods = importTimePreset?.let(::createPresetPeriods)
+                val basePeriods = presetPeriods ?: current.classPeriods
                 val requiredSectionCount = maxOf(
-                    current.sectionCount,
+                    if (presetPeriods == null) current.sectionCount else presetPeriods.size,
                     importedCourses.maxOf(Course::endSection)
                 )
                 val requiredTotalWeeks = maxOf(
                     current.totalWeeks,
                     importedCourses.maxOf(Course::endWeek)
                 )
-                val expandedPeriods = current.classPeriods.toMutableList()
+                val expandedPeriods = basePeriods.toMutableList()
                 while (expandedPeriods.size < requiredSectionCount) {
                     val previousEnd = expandedPeriods.lastOrNull()?.endMinutes ?: (8 * 60 - 10)
                     val number = expandedPeriods.size + 1
@@ -373,6 +389,7 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
                 }
                 if (
                     requiredSectionCount != current.sectionCount ||
+                    expandedPeriods != current.classPeriods ||
                     requiredTotalWeeks != current.totalWeeks
                 ) {
                     settingsRepository.save(

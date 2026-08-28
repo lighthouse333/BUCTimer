@@ -1,8 +1,11 @@
 package com.example.timetable
 
 import com.example.timetable.model.Course
+import com.example.timetable.model.ClassPeriod
+import com.example.timetable.model.TimePreset
 import com.example.timetable.model.WeekType
 import com.example.timetable.model.createActiveWeeks
+import com.example.timetable.model.createPresetPeriods
 import com.example.timetable.model.findWeekContainingDate
 import com.example.timetable.model.formatActiveWeeks
 import com.example.timetable.model.parseActiveWeeks
@@ -24,6 +27,27 @@ import org.junit.Test
 import java.time.LocalDate
 
 class ExampleUnitTest {
+    @Test
+    fun createsCurrentBuctTwelvePeriodPreset() {
+        assertEquals(
+            listOf(
+                ClassPeriod(1, 480, 525),
+                ClassPeriod(2, 530, 575),
+                ClassPeriod(3, 585, 630),
+                ClassPeriod(4, 640, 685),
+                ClassPeriod(5, 690, 735),
+                ClassPeriod(6, 810, 855),
+                ClassPeriod(7, 860, 905),
+                ClassPeriod(8, 915, 960),
+                ClassPeriod(9, 965, 1010),
+                ClassPeriod(10, 1080, 1125),
+                ClassPeriod(11, 1130, 1175),
+                ClassPeriod(12, 1180, 1225)
+            ),
+            createPresetPeriods(TimePreset.BUCT)
+        )
+    }
+
     @Test
     fun parsesReleaseVersionCodeUsingSupportedSeparators() {
         assertEquals(5L, parseReleaseVersionCode("版本：1.2.0（versionCode 5）"))

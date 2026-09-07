@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -56,6 +57,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -72,6 +74,8 @@ import com.example.timetable.model.Course
 import com.example.timetable.data.TimetableEntity
 import com.example.timetable.importer.TimetableImportSchool
 import com.example.timetable.model.findWeekContainingDate
+import com.example.timetable.model.effectiveEndMinutes
+import com.example.timetable.model.effectiveStartMinutes
 import com.example.timetable.model.formatActiveWeeks
 import com.example.timetable.model.isActiveInWeek
 import kotlinx.coroutines.launch
@@ -82,6 +86,7 @@ import java.time.ZoneId
 fun TimetableScreen(
     viewModel: TimetableViewModel,
     foregroundEntry: Int = 0,
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val weekDays = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -91,11 +96,7 @@ fun TimetableScreen(
     val currentTimetable by viewModel.currentTimetable.collectAsState()
     val selectedTimetableId by viewModel.selectedTimetableId.collectAsState()
     val timetableImportState by viewModel.timetableImportState.collectAsState()
-    val updateState by viewModel.updateState.collectAsState()
-    val automaticUpdateChecks by viewModel.automaticUpdateChecks.collectAsState()
-    val updatePopupReminders by viewModel.updatePopupReminders.collectAsState()
-    val updatePrompt by viewModel.updatePrompt.collectAsState()
-    val lastUpdateCheck by viewModel.lastUpdateCheck.collectAsState()
+    val useCompactView by viewModel.compactTimetableView.collectAsState()
     var selectedImportSchool by remember { mutableStateOf<TimetableImportSchool?>(null) }
     val pdfPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -110,10 +111,8 @@ fun TimetableScreen(
     var showSectionCountDialog by remember { mutableStateOf(false) }
     var showTimeSettingsDialog by remember { mutableStateOf(false) }
     var showSemesterSettingsDialog by remember { mutableStateOf(false) }
-    var showImportSchoolDialog by remember { mutableStateOf(false) }
     var showTimetableDialog by remember { mutableStateOf(false) }
     var showCreateTimetableDialog by remember { mutableStateOf(false) }
-    var showAboutSettings by remember { mutableStateOf(false) }
     var showOnlineImportDialog by remember { mutableStateOf(false) }
     var showOnlineImportWeb by remember { mutableStateOf(false) }
     var onlineImportStudentId by remember { mutableStateOf("") }
@@ -128,12 +127,13 @@ fun TimetableScreen(
     var selectedCourse by remember { mutableStateOf<Course?>(null) }
     var courseBeingEdited by remember { mutableStateOf<Course?>(null) }
     var coursePendingDeletion by remember { mutableStateOf<Course?>(null) }
-    var currentWeek by remember { mutableStateOf(1) }
+    var currentWeek by rememberSaveable { mutableStateOf(1) }
+    var lastWeekResetKey by rememberSaveable { mutableStateOf("") }
     val sectionCount = settings.sectionCount
     val semesterStart = settings.semesterStart
     val totalWeeks = settings.totalWeeks
     val classPeriods = settings.classPeriods
-    val pagerState = rememberPagerState(initialPage = 0) { totalWeeks }
+    val pagerState = rememberPagerState(initialPage = currentWeek - 1) { totalWeeks }
     val coroutineScope = rememberCoroutineScope()
     val localDate = LocalDate.now(ZoneId.systemDefault())
     val semesterEndExclusive = semesterStart.plusWeeks(totalWeeks.toLong())
@@ -141,9 +141,13 @@ fun TimetableScreen(
         !localDate.isBefore(semesterStart) && localDate.isBefore(semesterEndExclusive)
 
     LaunchedEffect(selectedTimetableId, semesterStart, totalWeeks, foregroundEntry) {
-        val targetWeek = findWeekContainingDate(localDate, semesterStart, totalWeeks)
-        pagerState.scrollToPage(targetWeek - 1)
-        currentWeek = targetWeek
+        val resetKey = "$selectedTimetableId/$semesterStart/$totalWeeks/$foregroundEntry"
+        if (lastWeekResetKey != resetKey) {
+            val targetWeek = findWeekContainingDate(localDate, semesterStart, totalWeeks)
+            pagerState.scrollToPage(targetWeek - 1)
+            currentWeek = targetWeek
+            lastWeekResetKey = resetKey
+        }
         selectedCourse = null
     }
 
@@ -154,41 +158,6 @@ fun TimetableScreen(
     LaunchedEffect(currentWeek) {
         selectionAwaitingConfirmation = null
         dragCourseSelection = null
-    }
-
-    if (showAboutSettings) {
-        AboutSettingsScreen(
-            updateState = updateState,
-            automaticUpdateChecks = automaticUpdateChecks,
-            updatePopupReminders = updatePopupReminders,
-            lastUpdateCheck = lastUpdateCheck,
-            onAutomaticUpdateChecksChange = viewModel::setAutomaticUpdateChecks,
-            onUpdatePopupRemindersChange = viewModel::setUpdatePopupReminders,
-            onCheckForUpdate = viewModel::checkForAppUpdate,
-            onDownloadUpdate = viewModel::downloadAppUpdate,
-            onInstallUpdate = viewModel::installDownloadedUpdate,
-            onBack = { showAboutSettings = false },
-            modifier = modifier
-        )
-        updatePrompt?.let { info ->
-            UpdateAvailableDialog(
-                info = info,
-                onUpdateNow = { viewModel.downloadAppUpdate(info) },
-                onUpdateLater = viewModel::dismissUpdatePrompt
-            )
-        }
-        return
-    }
-
-    updatePrompt?.let { info ->
-        UpdateAvailableDialog(
-            info = info,
-            onUpdateNow = {
-                showAboutSettings = true
-                viewModel.downloadAppUpdate(info)
-            },
-            onUpdateLater = viewModel::dismissUpdatePrompt
-        )
     }
 
     Column(
@@ -229,6 +198,21 @@ fun TimetableScreen(
                     onDismissRequest = { showTopMenu = false }
                 ) {
                     DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (useCompactView) {
+                                    "切换为完整课表"
+                                } else {
+                                    "切换为今日课表（简洁版）"
+                                }
+                            )
+                        },
+                        onClick = {
+                            viewModel.setCompactTimetableView(!useCompactView)
+                            showTopMenu = false
+                        }
+                    )
+                    DropdownMenuItem(
                         text = { Text("切换或新建课表") },
                         onClick = {
                             showTopMenu = false
@@ -244,14 +228,19 @@ fun TimetableScreen(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("从课表导入") },
+                        text = { Text("导入北化课表 PDF") },
                         onClick = {
                             showTopMenu = false
-                            showImportSchoolDialog = true
+                            selectedImportSchool =
+                                TimetableImportSchool.BEIJING_UNIVERSITY_OF_CHEMICAL_TECHNOLOGY
+                            pdfPicker.launch(
+                                TimetableImportSchool.BEIJING_UNIVERSITY_OF_CHEMICAL_TECHNOLOGY
+                                    .acceptedMimeTypes
+                            )
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("在线导入（测试中）") },
+                        text = { Text("北化教务系统导入（测试中）") },
                         onClick = {
                             showTopMenu = false
                             showOnlineImportDialog = true
@@ -282,7 +271,7 @@ fun TimetableScreen(
                         text = { Text("关于与设置") },
                         onClick = {
                             showTopMenu = false
-                            showAboutSettings = true
+                            onOpenSettings()
                         }
                     )
                 }
@@ -336,18 +325,6 @@ fun TimetableScreen(
                 onCreate = { name ->
                     viewModel.createTimetable(name)
                     showCreateTimetableDialog = false
-                }
-            )
-        }
-
-        if (showImportSchoolDialog) {
-            ImportSchoolDialog(
-                schools = TimetableImportSchool.entries,
-                onDismiss = { showImportSchoolDialog = false },
-                onSelect = { school ->
-                    showImportSchoolDialog = false
-                    selectedImportSchool = school
-                    pdfPicker.launch(school.acceptedMimeTypes)
                 }
             )
         }
@@ -573,6 +550,18 @@ fun TimetableScreen(
             )
         }
 
+        if (useCompactView) {
+            CompactTodaySchedule(
+                date = localDate,
+                isDateInSemester = isLocalDateInSemester,
+                semesterStart = semesterStart,
+                totalWeeks = totalWeeks,
+                courses = courses,
+                classPeriods = classPeriods,
+                onCourseClick = { selectedCourse = it },
+                modifier = Modifier.weight(1f)
+            )
+        } else {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -829,6 +818,136 @@ fun TimetableScreen(
             }
         }
         }
+        }
+    }
+}
+
+@Composable
+private fun CompactTodaySchedule(
+    date: LocalDate,
+    isDateInSemester: Boolean,
+    semesterStart: LocalDate,
+    totalWeeks: Int,
+    courses: List<Course>,
+    classPeriods: List<com.example.timetable.model.ClassPeriod>,
+    onCourseClick: (Course) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val weekDay = listOf(
+        "周一", "周二", "周三", "周四", "周五", "周六", "周日"
+    )[date.dayOfWeek.value - 1]
+    val currentWeek = findWeekContainingDate(date, semesterStart, totalWeeks)
+    val todayCourses = if (isDateInSemester) {
+        courses.filter { it.weekDay == weekDay && it.isActiveInWeek(currentWeek) }
+            .sortedWith(
+                compareBy<Course> { it.effectiveStartMinutes(classPeriods) }
+                    .thenBy { it.name }
+            )
+    } else {
+        emptyList()
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Bottom
+        ) {
+            Column {
+                Text(
+                    text = "${date.monthValue}月${date.dayOfMonth}日 $weekDay",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                if (isDateInSemester) {
+                    Text(
+                        text = "第 $currentWeek 周",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            if (isDateInSemester) {
+                Text(
+                    text = "${todayCourses.size} 门课程",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
+        if (!isDateInSemester) {
+            CompactScheduleEmptyState("今天不在当前学期范围内")
+        } else if (todayCourses.isEmpty()) {
+            CompactScheduleEmptyState("今天没有课程")
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                todayCourses.forEach { course ->
+                    val startTime = formatMinutesAsTime(course.effectiveStartMinutes(classPeriods))
+                    val endTime = formatMinutesAsTime(course.effectiveEndMinutes(classPeriods))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(courseColor(course), RoundedCornerShape(14.dp))
+                            .clickable { onCourseClick(course) }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(
+                            modifier = Modifier.width(82.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(startTime, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = endTime,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF555555)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = course.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = listOf(course.classroom, course.teacher)
+                                    .filter(String::isNotBlank)
+                                    .joinToString(" · ")
+                                    .ifBlank { "暂无教室或教师信息" },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF555555),
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "第 ${course.startSection}-${course.endSection} 节",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF666666)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactScheduleEmptyState(message: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(
+            text = message,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyLarge
+        )
     }
 }
 

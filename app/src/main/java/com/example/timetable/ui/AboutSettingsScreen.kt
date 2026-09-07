@@ -79,7 +79,7 @@ fun AboutSettingsScreen(
             )
         }
         SettingsSectionTitle("应用")
-        Text("ClassSchedule", fontWeight = FontWeight.Bold)
+        Text("BUCTimer", fontWeight = FontWeight.Bold)
         Text("当前版本：${packageInfo.versionName}（$versionCode）")
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
@@ -139,7 +139,7 @@ fun AboutSettingsScreen(
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
         SettingsSectionTitle("说明")
-        Text("课程、课表和备忘数据保存在设备本地，课表文件仅在本地解析。")
+        Text("课程、课表、待办和番茄钟数据保存在设备本地，课表文件仅在本地解析。")
         Text("本项目为开源软件，源代码与许可信息可在 GitHub 项目页面查看。")
     }
 

@@ -22,6 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ClassSchedule"
+rootProject.name = "BUCTimer"
 include(":app")
- 

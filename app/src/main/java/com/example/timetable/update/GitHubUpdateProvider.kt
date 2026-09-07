@@ -149,7 +149,7 @@ class GitHubUpdateProvider(
             readTimeout = 30_000
             instanceFollowRedirects = true
             setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "ClassSchedule-Android")
+            setRequestProperty("User-Agent", "BUCTimer-Android")
             setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
         }
 

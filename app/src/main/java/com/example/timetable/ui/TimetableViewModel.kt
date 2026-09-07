@@ -77,6 +77,10 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
         "app_update_settings",
         android.content.Context.MODE_PRIVATE
     )
+    private val uiPreferences = application.getSharedPreferences(
+        "timetable_ui_settings",
+        android.content.Context.MODE_PRIVATE
+    )
     private val timetableParsers: Map<TimetableImportSchool, TimetableFileParser> = mapOf(
         TimetableImportSchool.BEIJING_UNIVERSITY_OF_CHEMICAL_TECHNOLOGY to
             BuctPdfTimetableParser(application),
@@ -106,6 +110,10 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
         updatePreferences.getLong(KEY_LAST_UPDATE_CHECK, 0L)
     )
     val lastUpdateCheck: StateFlow<Long> = _lastUpdateCheck.asStateFlow()
+    private val _compactTimetableView = MutableStateFlow(
+        uiPreferences.getBoolean(KEY_COMPACT_TIMETABLE_VIEW, false)
+    )
+    val compactTimetableView: StateFlow<Boolean> = _compactTimetableView.asStateFlow()
 
     val timetables = timetableRepository.timetables.stateIn(
         scope = viewModelScope,
@@ -223,6 +231,11 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
     fun setAutomaticUpdateChecks(enabled: Boolean) {
         _automaticUpdateChecks.value = enabled
         updatePreferences.edit().putBoolean(KEY_AUTOMATIC_UPDATE_CHECKS, enabled).apply()
+    }
+
+    fun setCompactTimetableView(enabled: Boolean) {
+        _compactTimetableView.value = enabled
+        uiPreferences.edit().putBoolean(KEY_COMPACT_TIMETABLE_VIEW, enabled).apply()
     }
 
     fun setUpdatePopupReminders(enabled: Boolean) {
@@ -417,6 +430,7 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
         private const val KEY_UPDATE_POPUP_REMINDERS = "update_popup_reminders"
         private const val KEY_DISMISSED_UPDATE_VERSION = "dismissed_update_version"
         private const val KEY_DISMISSED_UPDATE_AT = "dismissed_update_at"
+        private const val KEY_COMPACT_TIMETABLE_VIEW = "compact_timetable_view"
         private const val UPDATE_CHECK_INTERVAL_MILLIS = 24 * 60 * 60 * 1000L
         private const val UPDATE_PROMPT_SNOOZE_MILLIS = 24 * 60 * 60 * 1000L
     }

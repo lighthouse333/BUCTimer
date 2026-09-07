@@ -1,9 +1,9 @@
 <resources>
-    <string name="app_name">ClassSchedule</string>
+    <string name="app_name">BUCTimer</string>
     <string name="widget_compact_name">当前课程（2×2）</string>
     <string name="widget_expanded_name">当前与下一节课（2×4）</string>
-    <string name="widget_compact_search_name">课表 ClassSchedule · 当前课程（2×2）</string>
-    <string name="widget_expanded_search_name">课表 ClassSchedule · 当前与下一节课（2×4）</string>
+    <string name="widget_compact_search_name">北化课表 BUCTimer · 当前课程（2×2）</string>
+    <string name="widget_expanded_search_name">北化课表 BUCTimer · 当前与下一节课（2×4）</string>
     <string name="widget_current_course">当前课程</string>
     <string name="widget_next_course">下一节课</string>
 </resources>

@@ -4,16 +4,14 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
-import com.example.timetable.ui.TimetableScreen
+import com.example.timetable.ui.ClassScheduleApp
 import com.example.timetable.ui.TimetableViewModel
+import com.example.timetable.ui.TodoViewModel
+import com.example.timetable.ui.PomodoroViewModel
 import com.example.timetable.ui.theme.ClassScheduleTheme
 
 class MainActivity : ComponentActivity() {
@@ -28,16 +26,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val timetableViewModel = ViewModelProvider(this)[TimetableViewModel::class.java]
+        val todoViewModel = ViewModelProvider(this)[TodoViewModel::class.java]
+        val pomodoroViewModel = ViewModelProvider(this)[PomodoroViewModel::class.java]
 
         setContent {
             ClassScheduleTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    TimetableScreen(
-                        viewModel = timetableViewModel,
-                        foregroundEntry = foregroundEntry,
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
+                ClassScheduleApp(
+                    viewModel = timetableViewModel,
+                    todoViewModel = todoViewModel,
+                    pomodoroViewModel = pomodoroViewModel,
+                    foregroundEntry = foregroundEntry
+                )
             }
         }
     }

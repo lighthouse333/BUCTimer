@@ -7,6 +7,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.view.View
 import android.widget.RemoteViews
 import com.example.timetable.MainActivity
@@ -21,6 +22,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -28,12 +31,12 @@ import java.time.ZoneId
 
 class CompactScheduleWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        ScheduleWidgetController.updateAll(context)
+        updateWidgetsAsync(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        if (intent.action in REFRESH_ACTIONS) ScheduleWidgetController.updateAll(context)
+        if (intent.action in REFRESH_ACTIONS) updateWidgetsAsync(context)
     }
 
     private companion object {
@@ -42,80 +45,99 @@ class CompactScheduleWidgetProvider : AppWidgetProvider() {
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_DATE_CHANGED,
             Intent.ACTION_TIME_CHANGED,
-            Intent.ACTION_TIMEZONE_CHANGED
+            Intent.ACTION_TIMEZONE_CHANGED,
+            "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"
         )
     }
 }
 
 class ExpandedScheduleWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        ScheduleWidgetController.updateAll(context)
+        updateWidgetsAsync(context)
     }
+}
+
+private fun AppWidgetProvider.updateWidgetsAsync(context: Context) {
+    val pendingResult = goAsync()
+    ScheduleWidgetController.updateAll(context, pendingResult::finish)
 }
 
 object ScheduleWidgetController {
     const val ACTION_REFRESH = "com.example.timetable.widget.REFRESH"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val updateMutex = Mutex()
     private val weekDays = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
-    fun updateAll(context: Context) {
+    fun updateAll(context: Context, onFinished: () -> Unit = {}) {
         val appContext = context.applicationContext
         scope.launch {
-            val data = loadWidgetData(appContext)
-            val manager = AppWidgetManager.getInstance(appContext)
-            val compactIds = manager.getAppWidgetIds(
-                ComponentName(appContext, CompactScheduleWidgetProvider::class.java)
-            )
-            val expandedIds = manager.getAppWidgetIds(
-                ComponentName(appContext, ExpandedScheduleWidgetProvider::class.java)
-            )
-            val clickIntent = launchAppIntent(appContext)
+            try {
+                updateMutex.withLock {
+                    val data = loadWidgetData(appContext)
+                    val manager = AppWidgetManager.getInstance(appContext)
+                    val compactIds = manager.getAppWidgetIds(
+                        ComponentName(appContext, CompactScheduleWidgetProvider::class.java)
+                    )
+                    val expandedIds = manager.getAppWidgetIds(
+                        ComponentName(appContext, ExpandedScheduleWidgetProvider::class.java)
+                    )
+                    val clickIntent = launchAppIntent(appContext)
 
-            compactIds.forEach { id ->
-                manager.updateAppWidget(
-                    id,
-                    RemoteViews(appContext.packageName, R.layout.widget_schedule_compact).apply {
-                        setOnClickPendingIntent(R.id.widget_root, clickIntent)
-                        bindCourse(
-                            CURRENT_IDS,
-                            data.current,
-                            if (data.next == null) "今天没有课啦" else "现在没有课程"
+                    compactIds.forEach { id ->
+                        manager.updateAppWidget(
+                            id,
+                            RemoteViews(appContext.packageName, R.layout.widget_schedule_compact).apply {
+                                setOnClickPendingIntent(R.id.widget_root, clickIntent)
+                                bindCourse(
+                                    CURRENT_IDS,
+                                    data.current,
+                                    if (data.next == null) "今天没有课啦" else "现在没有课程"
+                                )
+                            }
                         )
                     }
-                )
-            }
-            expandedIds.forEach { id ->
-                manager.updateAppWidget(
-                    id,
-                    RemoteViews(appContext.packageName, R.layout.widget_schedule_expanded).apply {
-                        setOnClickPendingIntent(R.id.widget_root, clickIntent)
-                        bindCourse(
-                            CURRENT_IDS,
-                            data.current,
-                            if (data.next == null) "今天没有课啦" else "现在没有课程"
-                        )
-                        setTextViewText(R.id.next_label, appContext.getString(R.string.widget_next_course))
-                        bindCourse(
-                            NEXT_IDS,
-                            data.next,
-                            if (data.current == null) "今天没有课啦" else "今天没有下一节课了"
+                    expandedIds.forEach { id ->
+                        manager.updateAppWidget(
+                            id,
+                            RemoteViews(appContext.packageName, R.layout.widget_schedule_expanded).apply {
+                                setOnClickPendingIntent(R.id.widget_root, clickIntent)
+                                bindCourse(
+                                    CURRENT_IDS,
+                                    data.current,
+                                    if (data.next == null) "今天没有课啦" else "现在没有课程"
+                                )
+                                setTextViewText(R.id.next_label, appContext.getString(R.string.widget_next_course))
+                                bindCourse(
+                                    NEXT_IDS,
+                                    data.next,
+                                    if (data.current == null) "今天没有课啦" else "今天没有下一节课了"
+                                )
+                            }
                         )
                     }
-                )
+                    scheduleBoundaryRefresh(
+                        appContext,
+                        data.nextRefreshAt,
+                        compactIds.isNotEmpty() || expandedIds.isNotEmpty()
+                    )
+                }
+            } finally {
+                onFinished()
             }
-            scheduleBoundaryRefresh(appContext, data.nextRefreshAt, compactIds.isNotEmpty() || expandedIds.isNotEmpty())
         }
     }
 
     private suspend fun loadWidgetData(context: Context): WidgetData {
-        val now = LocalDateTime.now()
         val settingsRepository = ScheduleSettingsRepository(context)
         val timetableId = settingsRepository.selectedTimetableId.first()
         val settings = settingsRepository.settings(timetableId).first()
         val courses = CourseRepository(AppDatabase.getInstance(context).courseDao())
             .courses(timetableId)
             .first()
+        // Database and DataStore reads can suspend across a course boundary. Capture the
+        // time only after the data is ready so an old refresh cannot publish stale state.
+        val now = LocalDateTime.now()
         val today = now.toLocalDate()
         val minute = now.hour * 60 + now.minute
 
@@ -183,6 +205,18 @@ object ScheduleWidgetController {
         alarmManager.cancel(pending)
         if (!enabled || time == null) return
         val triggerAt = time.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli() + 1_000L
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()) {
+            try {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAt,
+                    pending
+                )
+                return
+            } catch (_: SecurityException) {
+                // Permission can be revoked between the capability check and scheduling.
+            }
+        }
         alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
     }
 

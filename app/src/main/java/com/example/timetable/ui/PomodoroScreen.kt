@@ -120,7 +120,7 @@ fun PomodoroScreen(
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
                 Text(
-                    text = state.goal.ifBlank { "点击设置，例如：完成数学作业" },
+                    text = state.goal.ifBlank { "点击设置（可选），例如：完成数学作业" },
                     modifier = Modifier.padding(top = 5.dp),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = if (state.goal.isBlank()) FontWeight.Normal else FontWeight.Bold,
@@ -133,7 +133,7 @@ fun PomodoroScreen(
 
         if (state.goal.isBlank() && state.phase == PomodoroPhase.FOCUS) {
             Text(
-                text = "设置目标后即可开始专注",
+                text = "无需设置目标也可以开始专注",
                 modifier = Modifier.padding(top = 10.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall
@@ -152,7 +152,6 @@ fun PomodoroScreen(
             }
             Button(
                 onClick = onToggleRunning,
-                enabled = state.isRunning || state.phase == PomodoroPhase.BREAK || state.goal.isNotBlank(),
                 modifier = Modifier.weight(1f)
             ) {
                 Text(if (state.isRunning) "暂停" else "开始")

@@ -56,7 +56,6 @@ class PomodoroViewModel(application: Application) : AndroidViewModel(application
             endAtMillis = 0L
             _state.value = _state.value.copy(isRunning = false)
         } else {
-            if (current.phase == PomodoroPhase.FOCUS && current.goal.isBlank()) return
             endAtMillis = System.currentTimeMillis() + current.remainingSeconds * 1_000L
             _state.value = current.copy(isRunning = true)
         }

@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -40,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,6 +58,7 @@ fun AcademicsScreen(viewModel: AcademicsViewModel, modifier: Modifier = Modifier
     var showWebLogin by remember { mutableStateOf(false) }
     var loginStudentId by remember { mutableStateOf(viewModel.savedStudentId().orEmpty()) }
     var loginPassword by remember { mutableStateOf("") }
+    var loginRemember by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.autoLoadIfNeeded()
@@ -95,11 +98,13 @@ fun AcademicsScreen(viewModel: AcademicsViewModel, modifier: Modifier = Modifier
 
     if (showLoginInfo) {
         AcademicLoginDialog(
-            initialStudentId = loginStudentId,
+            savedStudentId = viewModel.savedJwStudentId().orEmpty(),
+            savedPassword = viewModel.savedJwPassword().orEmpty(),
             onDismiss = { showLoginInfo = false },
-            onConfirm = { studentId, password ->
+            onConfirm = { studentId, password, remember ->
                 loginStudentId = studentId
                 loginPassword = password
+                loginRemember = remember
                 showLoginInfo = false
                 showWebLogin = true
             }
@@ -116,8 +121,10 @@ fun AcademicsScreen(viewModel: AcademicsViewModel, modifier: Modifier = Modifier
             },
             onLoginSuccess = { cookies ->
                 showWebLogin = false
+                val pwd = loginPassword
+                val remember = loginRemember
                 loginPassword = ""
-                viewModel.onLoginSuccess(cookies, loginStudentId)
+                viewModel.onLoginSuccess(cookies, loginStudentId, pwd, remember)
             },
             onLoginFailed = {
                 showWebLogin = false
@@ -130,22 +137,37 @@ fun AcademicsScreen(viewModel: AcademicsViewModel, modifier: Modifier = Modifier
 
 @Composable
 private fun AcademicLoginDialog(
-    initialStudentId: String,
+    savedStudentId: String,
+    savedPassword: String,
     onDismiss: () -> Unit,
-    onConfirm: (studentId: String, password: String) -> Unit
+    onConfirm: (studentId: String, password: String, remember: Boolean) -> Unit
 ) {
-    var studentId by remember { mutableStateOf(initialStudentId) }
+    var studentId by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var rememberCredentials by remember { mutableStateOf(savedPassword.isNotEmpty()) }
+    var showPassword by remember { mutableStateOf(false) }
+    var askFillConfirm by remember { mutableStateOf(false) }
+    var fillAnsweredForId by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("登录北化教务系统") },
         text = {
             Column {
-                Text("输入学号与统一认证密码后自动登录，查询成绩、绩点与考试安排。密码仅用于本次登录，App 不读取也不保存。")
+                Text("输入学号与统一认证密码后自动登录，查询成绩、绩点与考试安排。")
                 OutlinedTextField(
                     value = studentId,
-                    onValueChange = { studentId = it },
+                    onValueChange = { value ->
+                        studentId = value
+                        val trimmed = value.trim()
+                        if (trimmed.isNotEmpty() &&
+                            trimmed == savedStudentId &&
+                            savedPassword.isNotEmpty() &&
+                            fillAnsweredForId != trimmed
+                        ) {
+                            askFillConfirm = true
+                        }
+                    },
                     label = { Text("学号") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -155,21 +177,62 @@ private fun AcademicLoginDialog(
                     onValueChange = { password = it },
                     label = { Text("统一认证密码") },
                     singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation =
+                        if (showPassword) VisualTransformation.None
+                        else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        TextButton(onClick = { showPassword = !showPassword }) {
+                            Text(if (showPassword) "隐藏" else "显示", fontSize = 12.sp)
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { rememberCredentials = !rememberCredentials }
+                ) {
+                    Checkbox(
+                        checked = rememberCredentials,
+                        onCheckedChange = { rememberCredentials = it }
+                    )
+                    Text("记住账号密码（加密保存在本机，可在设置中删除）")
+                }
             }
         },
         confirmButton = {
             TextButton(
                 enabled = studentId.isNotBlank() && password.isNotBlank(),
-                onClick = { onConfirm(studentId.trim(), password) }
+                onClick = {
+                    onConfirm(studentId.trim(), password, rememberCredentials)
+                }
             ) { Text("登录") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
+
+    if (askFillConfirm) {
+        AlertDialog(
+            onDismissRequest = { askFillConfirm = false },
+            title = { Text("填充已保存的密码") },
+            text = { Text("检测到账号 ${studentId.trim()} 已有保存的密码，是否自动填充？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    password = savedPassword
+                    rememberCredentials = true
+                    fillAnsweredForId = studentId.trim()
+                    askFillConfirm = false
+                }) { Text("填充") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    fillAnsweredForId = studentId.trim()
+                    askFillConfirm = false
+                }) { Text("不填充") }
+            }
+        )
+    }
 }
 
 @Composable

@@ -47,6 +47,7 @@ sealed interface AcademicsState {
  */
 class AcademicsViewModel(application: Application) : AndroidViewModel(application) {
     private val jwSessionStore = JwSessionStore(application)
+    private val jwCredentialStore = com.example.timetable.jw.JwCredentialStore(application)
     private val _state = MutableStateFlow<AcademicsState>(AcademicsState.LoggedOut)
     val state: StateFlow<AcademicsState> = _state.asStateFlow()
     private val _selectedSemester = MutableStateFlow(defaultSemesterSelection())
@@ -54,7 +55,18 @@ class AcademicsViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun savedStudentId(): String? = jwSessionStore.loadStudentId()
 
-    fun onLoginSuccess(cookies: String, studentId: String) {
+    fun savedJwStudentId(): String? = jwCredentialStore.loadStudentId()
+
+    fun savedJwPassword(): String? = jwCredentialStore.loadPassword()
+
+    fun clearSavedJwCredentials() = jwCredentialStore.clear()
+
+    fun onLoginSuccess(
+        cookies: String,
+        studentId: String,
+        password: String? = null,
+        rememberCredentials: Boolean = false
+    ) {
         if (cookies.isBlank()) {
             _state.value = AcademicsState.Failed(
                 message = "未获取到登录会话，请重新登录",
@@ -64,6 +76,11 @@ class AcademicsViewModel(application: Application) : AndroidViewModel(applicatio
         }
         jwSessionStore.saveCookies(cookies)
         jwSessionStore.saveStudentId(studentId)
+        if (rememberCredentials && !password.isNullOrBlank()) {
+            jwCredentialStore.save(studentId, password)
+        } else if (!rememberCredentials) {
+            jwCredentialStore.clear()
+        }
         refresh()
     }
 

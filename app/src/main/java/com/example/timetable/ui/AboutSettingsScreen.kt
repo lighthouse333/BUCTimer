@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,6 +27,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.text.DateFormat
@@ -37,6 +40,9 @@ fun AboutSettingsScreen(
     automaticUpdateChecks: Boolean,
     updatePopupReminders: Boolean,
     lastUpdateCheck: Long,
+    savedJwStudentId: String?,
+    onDeleteJwCredentials: () -> Unit,
+    onSaveJwCredentials: (studentId: String, password: String) -> Unit,
     onAutomaticUpdateChecksChange: (Boolean) -> Unit,
     onUpdatePopupRemindersChange: (Boolean) -> Unit,
     onCheckForUpdate: () -> Unit,
@@ -58,6 +64,9 @@ fun AboutSettingsScreen(
         packageInfo.versionCode.toLong()
     }
     var updateToConfirm by remember { mutableStateOf<com.example.timetable.update.AppUpdateInfo?>(null) }
+    var savedAccountId by remember { mutableStateOf(savedJwStudentId) }
+    var showDeleteCredentialConfirm by remember { mutableStateOf(false) }
+    var showCredentialEditor by remember { mutableStateOf(false) }
     BackHandler(onBack = onBack)
 
     Column(
@@ -126,6 +135,39 @@ fun AboutSettingsScreen(
         )
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+        SettingsSectionTitle("北京化工大学统一身份认证")
+        val storedId = savedAccountId
+        if (storedId.isNullOrBlank()) {
+            Text(
+                "未保存教务账号。保存后，登录课表导入或学业页输入相同学号时会提示填充密码。账号与密码将加密保存在本机。",
+                fontSize = 12.sp
+            )
+            TextButton(onClick = { showCredentialEditor = true }) {
+                Text("添加账号")
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("已保存账号：$storedId")
+                    Text(
+                        "密码已加密保存在本机，输入相同学号时可自动填充",
+                        fontSize = 12.sp
+                    )
+                }
+                TextButton(onClick = { showCredentialEditor = true }) {
+                    Text("修改")
+                }
+                TextButton(onClick = { showDeleteCredentialConfirm = true }) {
+                    Text("删除")
+                }
+            }
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
         SettingsSectionTitle("项目")
         TextButton(onClick = { uriHandler.openUri(REPOSITORY_URL) }) {
             Text("GitHub 项目地址")
@@ -164,6 +206,90 @@ fun AboutSettingsScreen(
             }
         )
     }
+
+    if (showDeleteCredentialConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteCredentialConfirm = false },
+            title = { Text("删除已保存的教务账号？") },
+            text = { Text("删除后登录时需要重新输入账号与密码。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeleteJwCredentials()
+                    savedAccountId = null
+                    showDeleteCredentialConfirm = false
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteCredentialConfirm = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    if (showCredentialEditor) {
+        CredentialEditorDialog(
+            initialStudentId = savedAccountId.orEmpty(),
+            onDismiss = { showCredentialEditor = false },
+            onSave = { studentId, password ->
+                onSaveJwCredentials(studentId, password)
+                savedAccountId = studentId
+                showCredentialEditor = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun CredentialEditorDialog(
+    initialStudentId: String,
+    onDismiss: () -> Unit,
+    onSave: (studentId: String, password: String) -> Unit
+) {
+    var studentId by remember { mutableStateOf(initialStudentId) }
+    var password by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("保存教务账号") },
+        text = {
+            Column {
+                Text("账号与密码将使用系统密钥加密后保存在本机，输入相同学号时可自动填充。")
+                OutlinedTextField(
+                    value = studentId,
+                    onValueChange = { studentId = it },
+                    label = { Text("学号") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("统一认证密码") },
+                    singleLine = true,
+                    visualTransformation =
+                        if (showPassword) VisualTransformation.None
+                        else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        TextButton(onClick = { showPassword = !showPassword }) {
+                            Text(if (showPassword) "隐藏" else "显示", fontSize = 12.sp)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = studentId.isNotBlank() && password.isNotBlank(),
+                onClick = { onSave(studentId.trim(), password) }
+            ) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
 }
 
 @Composable

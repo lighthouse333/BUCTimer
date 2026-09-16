@@ -11,6 +11,7 @@ composeBom = "2026.02.01"
 ksp = "2.3.9"
 room = "2.8.4"
 datastore = "1.2.1"
+securityCrypto = "1.1.0-alpha06"
 pdfboxAndroid = "2.0.27.0"
 
 [libraries]
@@ -32,6 +33,7 @@ androidx-room-runtime = { group = "androidx.room", name = "room-runtime", versio
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 pdfbox-android = { group = "com.tom-roush", name = "pdfbox-android", version.ref = "pdfboxAndroid" }
 
 [plugins]

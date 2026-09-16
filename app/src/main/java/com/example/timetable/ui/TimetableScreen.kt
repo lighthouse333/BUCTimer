@@ -65,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -120,6 +121,7 @@ fun TimetableScreen(
     var showLoginFailedDialog by remember { mutableStateOf(false) }
     var onlineImportStudentId by remember { mutableStateOf("") }
     var onlineImportPassword by remember { mutableStateOf("") }
+    var onlineImportRemember by remember { mutableStateOf(false) }
     var onlineImportYear by remember { mutableStateOf(LocalDate.now(ZoneId.systemDefault()).year) }
     var onlineImportSemester by remember { mutableStateOf(1) }
     var timetablePendingRename by remember { mutableStateOf<TimetableEntity?>(null) }
@@ -384,10 +386,13 @@ fun TimetableScreen(
         if (showOnlineImportDialog) {
             OnlineImportInfoDialog(
                 hasSavedSession = viewModel.hasSavedJwSession(),
+                savedStudentId = viewModel.savedJwStudentId().orEmpty(),
+                savedPassword = viewModel.savedJwPassword().orEmpty(),
                 onDismiss = { showOnlineImportDialog = false },
-                onLogin = { studentId, year, semester, password ->
+                onLogin = { studentId, year, semester, password, remember ->
                     onlineImportStudentId = studentId
                     onlineImportPassword = password
+                    onlineImportRemember = remember
                     onlineImportYear = year
                     onlineImportSemester = semester
                     showOnlineImportDialog = false
@@ -412,12 +417,16 @@ fun TimetableScreen(
                 },
                 onLoginSuccess = { cookies ->
                     showOnlineImportWeb = false
+                    val pwd = onlineImportPassword
+                    val remember = onlineImportRemember
                     onlineImportPassword = ""
                     viewModel.importOnlineTimetable(
                         cookies,
                         onlineImportStudentId,
                         onlineImportYear,
-                        onlineImportSemester
+                        onlineImportSemester,
+                        password = pwd,
+                        rememberCredentials = remember
                     )
                     onJwLoginSuccess()
                 },
@@ -1101,12 +1110,18 @@ private fun CreateTimetableDialog(
 @Composable
 private fun OnlineImportInfoDialog(
     hasSavedSession: Boolean,
+    savedStudentId: String,
+    savedPassword: String,
     onDismiss: () -> Unit,
-    onLogin: (studentId: String, year: Int, semester: Int, password: String) -> Unit,
+    onLogin: (studentId: String, year: Int, semester: Int, password: String, remember: Boolean) -> Unit,
     onUseSavedSession: (studentId: String, year: Int, semester: Int) -> Unit
 ) {
     var studentId by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var rememberCredentials by remember { mutableStateOf(savedPassword.isNotEmpty()) }
+    var showPassword by remember { mutableStateOf(false) }
+    var askFillConfirm by remember { mutableStateOf(false) }
+    var fillAnsweredForId by remember { mutableStateOf("") }
     var year by remember { mutableStateOf(LocalDate.now(ZoneId.systemDefault()).year.toString()) }
     var semester by remember { mutableStateOf(1) }
     val yearValue = year.trim().toIntOrNull()
@@ -1117,10 +1132,20 @@ private fun OnlineImportInfoDialog(
         title = { Text("在线导入课表") },
         text = {
             Column {
-                Text("输入学号与密码后自动登录北化教务系统，拉取课表并同步成绩、绩点与考试。密码仅用于本次登录，App 不读取也不保存。")
+                Text("输入学号与密码后自动登录北化教务系统，拉取课表并同步成绩、绩点与考试。")
                 OutlinedTextField(
                     value = studentId,
-                    onValueChange = { studentId = it },
+                    onValueChange = { value ->
+                        studentId = value
+                        val trimmed = value.trim()
+                        if (trimmed.isNotEmpty() &&
+                            trimmed == savedStudentId &&
+                            savedPassword.isNotEmpty() &&
+                            fillAnsweredForId != trimmed
+                        ) {
+                            askFillConfirm = true
+                        }
+                    },
                     label = { Text("学号") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -1130,9 +1155,26 @@ private fun OnlineImportInfoDialog(
                     onValueChange = { password = it },
                     label = { Text("统一认证密码") },
                     singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation =
+                        if (showPassword) VisualTransformation.None
+                        else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        TextButton(onClick = { showPassword = !showPassword }) {
+                            Text(if (showPassword) "隐藏" else "显示", fontSize = 12.sp)
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { rememberCredentials = !rememberCredentials }
+                ) {
+                    Checkbox(
+                        checked = rememberCredentials,
+                        onCheckedChange = { rememberCredentials = it }
+                    )
+                    Text("记住账号密码（加密保存在本机，可在设置中删除）")
+                }
                 OutlinedTextField(
                     value = year,
                     onValueChange = { year = it },
@@ -1163,12 +1205,42 @@ private fun OnlineImportInfoDialog(
                 }
                 TextButton(
                     enabled = valid,
-                    onClick = { onLogin(studentId.trim(), yearValue!!, semester, password) }
+                    onClick = {
+                        onLogin(
+                            studentId.trim(),
+                            yearValue!!,
+                            semester,
+                            password,
+                            rememberCredentials
+                        )
+                    }
                 ) { Text(if (hasSavedSession) "重新登录" else "登录") }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
+
+    if (askFillConfirm) {
+        AlertDialog(
+            onDismissRequest = { askFillConfirm = false },
+            title = { Text("填充已保存的密码") },
+            text = { Text("检测到账号 ${studentId.trim()} 已有保存的密码，是否自动填充？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    password = savedPassword
+                    rememberCredentials = true
+                    fillAnsweredForId = studentId.trim()
+                    askFillConfirm = false
+                }) { Text("填充") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    fillAnsweredForId = studentId.trim()
+                    askFillConfirm = false
+                }) { Text("不填充") }
+            }
+        )
+    }
 }
 
 @Composable

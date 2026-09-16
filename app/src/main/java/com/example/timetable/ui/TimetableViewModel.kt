@@ -72,6 +72,7 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
     private val timetableRepository = TimetableRepository(database.timetableDao())
     private val settingsRepository = ScheduleSettingsRepository(application)
     private val jwSessionStore = JwSessionStore(application)
+    private val jwCredentialStore = com.example.timetable.jw.JwCredentialStore(application)
     private val updateProvider = GitHubUpdateProvider(application)
     private val updatePreferences = application.getSharedPreferences(
         "app_update_settings",
@@ -353,7 +354,25 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun savedJwSession(): String? = jwSessionStore.loadCookies()
 
-    fun importOnlineTimetable(cookies: String, studentId: String, year: Int, semester: Int) {
+    fun savedJwStudentId(): String? = jwCredentialStore.loadStudentId()
+
+    fun savedJwPassword(): String? = jwCredentialStore.loadPassword()
+
+    fun clearSavedJwCredentials() = jwCredentialStore.clear()
+
+    fun saveJwCredentials(studentId: String, password: String) {
+        if (studentId.isBlank() || password.isBlank()) return
+        jwCredentialStore.save(studentId.trim(), password)
+    }
+
+    fun importOnlineTimetable(
+        cookies: String,
+        studentId: String,
+        year: Int,
+        semester: Int,
+        password: String? = null,
+        rememberCredentials: Boolean = false
+    ) {
         if (cookies.isBlank()) {
             _timetableImportState.value =
                 TimetableImportState.Error("未获取到登录会话，请重新登录")
@@ -363,6 +382,11 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
         // 便于学业页立即复用同一会话查询成绩与考试
         jwSessionStore.saveCookies(cookies)
         jwSessionStore.saveStudentId(studentId)
+        if (rememberCredentials && !password.isNullOrBlank()) {
+            jwCredentialStore.save(studentId, password)
+        } else if (!rememberCredentials) {
+            jwCredentialStore.clear()
+        }
         viewModelScope.launch {
             _timetableImportState.value = TimetableImportState.Loading("正在在线拉取课表……")
             _timetableImportState.value = try {

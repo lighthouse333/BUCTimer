@@ -12,6 +12,7 @@ import com.example.timetable.ui.ClassScheduleApp
 import com.example.timetable.ui.TimetableViewModel
 import com.example.timetable.ui.TodoViewModel
 import com.example.timetable.ui.PomodoroViewModel
+import com.example.timetable.ui.AcademicsViewModel
 import com.example.timetable.ui.theme.ClassScheduleTheme
 
 class MainActivity : ComponentActivity() {
@@ -28,6 +29,7 @@ class MainActivity : ComponentActivity() {
         val timetableViewModel = ViewModelProvider(this)[TimetableViewModel::class.java]
         val todoViewModel = ViewModelProvider(this)[TodoViewModel::class.java]
         val pomodoroViewModel = ViewModelProvider(this)[PomodoroViewModel::class.java]
+        val academicsViewModel = ViewModelProvider(this)[AcademicsViewModel::class.java]
 
         setContent {
             ClassScheduleTheme {
@@ -35,6 +37,7 @@ class MainActivity : ComponentActivity() {
                     viewModel = timetableViewModel,
                     todoViewModel = todoViewModel,
                     pomodoroViewModel = pomodoroViewModel,
+                    academicsViewModel = academicsViewModel,
                     foregroundEntry = foregroundEntry
                 )
             }

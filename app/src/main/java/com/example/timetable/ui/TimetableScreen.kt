@@ -64,6 +64,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -87,6 +88,7 @@ fun TimetableScreen(
     viewModel: TimetableViewModel,
     foregroundEntry: Int = 0,
     onOpenSettings: () -> Unit = {},
+    onJwLoginSuccess: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val weekDays = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -115,7 +117,9 @@ fun TimetableScreen(
     var showCreateTimetableDialog by remember { mutableStateOf(false) }
     var showOnlineImportDialog by remember { mutableStateOf(false) }
     var showOnlineImportWeb by remember { mutableStateOf(false) }
+    var showLoginFailedDialog by remember { mutableStateOf(false) }
     var onlineImportStudentId by remember { mutableStateOf("") }
+    var onlineImportPassword by remember { mutableStateOf("") }
     var onlineImportYear by remember { mutableStateOf(LocalDate.now(ZoneId.systemDefault()).year) }
     var onlineImportSemester by remember { mutableStateOf(1) }
     var timetablePendingRename by remember { mutableStateOf<TimetableEntity?>(null) }
@@ -381,8 +385,9 @@ fun TimetableScreen(
             OnlineImportInfoDialog(
                 hasSavedSession = viewModel.hasSavedJwSession(),
                 onDismiss = { showOnlineImportDialog = false },
-                onLogin = { studentId, year, semester ->
+                onLogin = { studentId, year, semester, password ->
                     onlineImportStudentId = studentId
+                    onlineImportPassword = password
                     onlineImportYear = year
                     onlineImportSemester = semester
                     showOnlineImportDialog = false
@@ -398,16 +403,39 @@ fun TimetableScreen(
         }
 
         if (showOnlineImportWeb) {
-            OnlineImportWebDialog(
-                onCancel = { showOnlineImportWeb = false },
+            JwLoginOverlay(
+                studentId = onlineImportStudentId,
+                password = onlineImportPassword,
+                onCancel = {
+                    showOnlineImportWeb = false
+                    onlineImportPassword = ""
+                },
                 onLoginSuccess = { cookies ->
                     showOnlineImportWeb = false
+                    onlineImportPassword = ""
                     viewModel.importOnlineTimetable(
                         cookies,
                         onlineImportStudentId,
                         onlineImportYear,
                         onlineImportSemester
                     )
+                    onJwLoginSuccess()
+                },
+                onLoginFailed = {
+                    showOnlineImportWeb = false
+                    onlineImportPassword = ""
+                    showLoginFailedDialog = true
+                }
+            )
+        }
+
+        if (showLoginFailedDialog) {
+            AlertDialog(
+                onDismissRequest = { showLoginFailedDialog = false },
+                title = { Text("登录失败") },
+                text = { Text("账号或密码错误，请检查后重试。") },
+                confirmButton = {
+                    TextButton(onClick = { showLoginFailedDialog = false }) { Text("确定") }
                 }
             )
         }
@@ -1074,26 +1102,35 @@ private fun CreateTimetableDialog(
 private fun OnlineImportInfoDialog(
     hasSavedSession: Boolean,
     onDismiss: () -> Unit,
-    onLogin: (studentId: String, year: Int, semester: Int) -> Unit,
+    onLogin: (studentId: String, year: Int, semester: Int, password: String) -> Unit,
     onUseSavedSession: (studentId: String, year: Int, semester: Int) -> Unit
 ) {
     var studentId by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var year by remember { mutableStateOf(LocalDate.now(ZoneId.systemDefault()).year.toString()) }
     var semester by remember { mutableStateOf(1) }
     val yearValue = year.trim().toIntOrNull()
-    val valid = studentId.isNotBlank() && yearValue != null
+    val valid = studentId.isNotBlank() && password.isNotBlank() && yearValue != null
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("在线导入课表") },
         text = {
             Column {
-                Text("先在浏览器中完成北化统一认证登录（密码只交给学校，App 不读取）。")
+                Text("输入学号与密码后自动登录北化教务系统，拉取课表并同步成绩、绩点与考试。密码仅用于本次登录，App 不读取也不保存。")
                 OutlinedTextField(
                     value = studentId,
                     onValueChange = { studentId = it },
                     label = { Text("学号") },
                     singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("统一认证密码") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
@@ -1126,114 +1163,12 @@ private fun OnlineImportInfoDialog(
                 }
                 TextButton(
                     enabled = valid,
-                    onClick = { onLogin(studentId.trim(), yearValue!!, semester) }
+                    onClick = { onLogin(studentId.trim(), yearValue!!, semester, password) }
                 ) { Text(if (hasSavedSession) "重新登录" else "登录") }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
-}
-
-private const val JW_WEB_BASE = "https://jwglxt.buct.edu.cn"
-
-@Composable
-private fun OnlineImportWebDialog(
-    onCancel: () -> Unit,
-    onLoginSuccess: (cookies: String) -> Unit
-) {
-    var handled by remember { mutableStateOf(false) }
-    var webMessage by remember { mutableStateOf<String?>(null) }
-    fun proceed(cookies: String) {
-        if (!handled) {
-            handled = true
-            onLoginSuccess(cookies)
-        }
-    }
-
-    Dialog(
-        onDismissRequest = onCancel,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            dismissOnClickOutside = false
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "请在下方完成北化统一认证登录",
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
-                TextButton(onClick = {
-                    CookieManager.getInstance().flush()
-                    proceed(CookieManager.getInstance().getCookie(JW_WEB_BASE).orEmpty())
-                }) { Text("完成登录") }
-                TextButton(onClick = onCancel) { Text("取消") }
-            }
-            webMessage?.let { message ->
-                Text(
-                    "页面加载失败：$message",
-                    color = Color.Red,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-            }
-            AndroidView(
-                factory = { ctx ->
-                    WebView(ctx).apply {
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                        CookieManager.getInstance().setAcceptCookie(true)
-                        webViewClient = object : WebViewClient() {
-                            override fun onPageFinished(view: WebView?, url: String?) {
-                                super.onPageFinished(view, url)
-                                if (url != null &&
-                                    url.startsWith(JW_WEB_BASE) &&
-                                    url.contains("/jwglxt/")
-                                ) {
-                                    CookieManager.getInstance().flush()
-                                    proceed(CookieManager.getInstance().getCookie(JW_WEB_BASE).orEmpty())
-                                }
-                            }
-                            override fun onReceivedError(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                                error: WebResourceError?
-                            ) {
-                                super.onReceivedError(view, request, error)
-                                if (request?.isForMainFrame == true && webMessage == null) {
-                                    webMessage = error?.description?.toString()
-                                        ?: ("错误码 " + (error?.errorCode ?: -1))
-                                }
-                            }
-                            override fun onReceivedSslError(
-                                view: WebView?,
-                                handler: SslErrorHandler?,
-                                error: SslError?
-                            ) {
-                                if (webMessage == null) {
-                                    webMessage = "SSL 证书校验失败（错误码 ${error?.primaryError}），已阻止加载"
-                                }
-                                handler?.cancel()
-                            }
-                        }
-                        loadUrl("$JW_WEB_BASE/")
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-    }
 }
 
 @Composable

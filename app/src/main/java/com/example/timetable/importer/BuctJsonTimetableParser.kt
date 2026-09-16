@@ -24,12 +24,25 @@ object BuctJsonTimetableParser {
         "星期天" to "周日"
     )
 
+    /**
+     * 从教务课表响应中提取会话对应的学号（xsxx.XH），用于校验
+     * “登录账号”与用户所填学号一致；无法识别时返回 null。
+     */
+    fun studentIdOf(text: String): String? {
+        val json = runCatching { JSONObject(text) }.getOrNull() ?: return null
+        return json.optJSONObject("xsxx")?.optString("XH")?.trim()?.ifEmpty { null }
+    }
+
     fun parseBuctJson(text: String, totalWeeks: Int): ParsedTimetable {
         val json = runCatching { JSONObject(text) }
             .getOrNull()
             ?: throw IllegalArgumentException("无法解析教务系统返回的数据")
+        val rawList = json.optJSONArray("kbList")
+        if (rawList != null) {
+            return parseRawKbList(json, rawList, totalWeeks)
+        }
         val coursesArray = json.optJSONArray("courses")
-            ?: throw IllegalArgumentException("未识别到课表数据（缺少 courses 字段）")
+            ?: throw IllegalArgumentException("未识别到课表数据：" + text.trim().take(300))
         val student = json.optJSONObject("student")
 
         val warnings = mutableListOf<String>()
@@ -61,6 +74,77 @@ object BuctJsonTimetableParser {
                 append(academicYear)
                 if (semester.isNotEmpty()) append("学年第").append(semester).append("学期")
             } else null,
+            courses = courses,
+            warnings = warnings.distinct()
+        )
+    }
+
+    /**
+     * 解析教务系统原始课表响应：`{ "kbList": [...], "xsxx": {…} }`。
+     * 条目字段：kcmc 课程名、xqjmc 星期、jcs 节次、zcd 周次（可含 (单)/(双)）、
+     * cdmc 场地（可为 "未排地点"）、xm 教师。
+     */
+    private fun parseRawKbList(
+        json: JSONObject,
+        rawList: org.json.JSONArray,
+        totalWeeks: Int
+    ): ParsedTimetable {
+        val warnings = mutableListOf<String>()
+        val courses = (0 until rawList.length())
+            .mapNotNull { index ->
+                val item = rawList.optJSONObject(index) ?: return@mapNotNull null
+                val name = item.optString("kcmc").trim()
+                if (name.isEmpty()) return@mapNotNull null
+                val day = item.optString("xqjmc").trim()
+                    .ifEmpty { item.optString("xqj").trim() }
+                val weekDay = dayToWeekDay(day)
+                if (weekDay == null) {
+                    warnings += "$name：无法识别星期“$day”"
+                    return@mapNotNull null
+                }
+                val periodsText = item.optString("jcs").trim()
+                val sections = parsePeriods(periodsText)
+                if (sections == null) {
+                    warnings += "$name：无法识别节次“$periodsText”"
+                    return@mapNotNull null
+                }
+                val weeksText = item.optString("zcd").trim()
+                val activeWeeks = parseWeekText(weeksText, totalWeeks)
+                if (activeWeeks == null) {
+                    warnings += "$name：无法识别周次“$weeksText”"
+                    return@mapNotNull null
+                }
+                Course(
+                    name = name,
+                    teacher = item.optString("xm").trim().ifEmpty { "无" },
+                    classroom = item.optString("cdmc").trim().ifEmpty { "无" },
+                    weekDay = weekDay,
+                    startSection = sections.first,
+                    endSection = sections.second,
+                    activeWeeks = activeWeeks
+                )
+            }
+            .distinctBy {
+                listOf(
+                    it.name, it.teacher, it.classroom, it.weekDay,
+                    it.startSection, it.endSection, it.activeWeeks
+                )
+            }
+            .sortedWith(
+                compareBy<Course> { WEEK_DAYS.indexOf(it.weekDay) }
+                    .thenBy(Course::startSection)
+                    .thenBy(Course::name)
+            )
+
+        if (courses.isEmpty()) {
+            throw IllegalArgumentException("没有识别到课程；请确认所选学期有课表数据")
+        }
+
+        val xsxx = json.optJSONObject("xsxx")
+        val semesterName = rawList.optJSONObject(0)?.optString("xnmmc").orEmpty()
+        return ParsedTimetable(
+            title = xsxx?.optString("XM")?.trim()?.takeIf(String::isNotEmpty),
+            semester = semesterName.ifEmpty { null },
             courses = courses,
             warnings = warnings.distinct()
         )

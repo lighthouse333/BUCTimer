@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    北化教务系统登录链路的某些跳转使用明文 HTTP（如 https://jwglxt.buct.edu.cn/
+    302 到 http://jwglxt.buct.edu.cn/sso/jziotlogin），WebView 需要对该域放行
+    明文流量。仅对学校域放行；HTTPS 证书校验与其余域名策略不受影响。
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">jwglxt.buct.edu.cn</domain>
+        <domain includeSubdomains="true">portal.buct.edu.cn</domain>
+        <domain includeSubdomains="true">i.buct.edu.cn</domain>
+    </domain-config>
+</network-security-config>

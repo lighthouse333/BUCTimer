@@ -15,6 +15,9 @@ import com.example.timetable.importer.BuctJsonTimetableParser
 import com.example.timetable.importer.NenuPdfTimetableParser
 import com.example.timetable.importer.ZjuXlsxTimetableParser
 import com.example.timetable.jw.JwApiClient
+import com.example.timetable.jw.JwParsers
+import com.example.timetable.jw.BuctGrade
+import com.example.timetable.jw.computeWeightedGpa
 import com.example.timetable.data.toEntity
 import com.example.timetable.data.toDomain
 import com.example.timetable.update.parseReleaseVersionCode
@@ -476,12 +479,168 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun extractsStudentIdFromBuctRawScheduleResponse() {
+        val json = """
+            {
+              "kbList": [ { "kcmc": "测试课程", "xqjmc": "星期一", "jcs": "1-2", "zcd": "1-16周" } ],
+              "xsxx": { "XH": "2025050094", "XM": "刘义军" }
+            }
+        """.trimIndent()
+
+        assertEquals("2025050094", BuctJsonTimetableParser.studentIdOf(json))
+        assertNull(BuctJsonTimetableParser.studentIdOf("""{"kbList":[]}"""))
+        assertNull(BuctJsonTimetableParser.studentIdOf("not json at all"))
+    }
+
+    @Test
     fun buildsBuctScheduleApiUrl() {
         assertEquals(
             "https://jwglxt.buct.edu.cn/jwglxt/kbcx/xskbcx_cxXsKb.html" +
                 "?gnmkdm=N2145&layout=default&su=2025050094&xnm=2026&xqm=3",
             JwApiClient.scheduleUrl("2025050094", 2026, "3")
         )
+    }
+
+    @Test
+    fun parsesBuctGradesWithMixedScoreTypes() {
+        val json = """
+            {"items":[
+              {
+                "kcmc":"大学化学","cj":"B+","bfzcj":"84","jd":"3.33","xf":"2.0",
+                "xnmmc":"2025-2026","xqm":"12","kcxzmc":"公共基础选修",
+                "kclbmc":"公共基础","khfsmc":"考查","kch":"CHM10201T",
+                "jxbmc":"大学化学-0002","sfjf":"1","xh":"2025050094","xm":"刘义军",
+                "bj":"电科2504","zymc":"电子科学与技术","jgmc":"数理学院"
+              },
+              {
+                "kcmc":"大学英语2","cj":"82","bfzcj":"82","jd":"3.33","xf":"2.0",
+                "xnmmc":"2025-2026","xqm":"12","kcxzmc":"公共基础必修",
+                "kclbmc":"公共基础","khfsmc":"考试","sfjf":"1"
+              },
+              {
+                "kcmc":"审美的历程","cj":"合格","bfzcj":"60","jd":"0.00","xf":"1.5",
+                "xnmmc":"2025-2026","xqm":"3","kcxzmc":"素质教育课程选修",
+                "khfsmc":"考查","sfjf":"0"
+              }
+            ]}
+        """.trimIndent()
+
+        val grades = JwParsers.parseGrades(json)
+
+        assertEquals(3, grades.size)
+        val letterGrade = grades.first { it.courseName == "大学化学" }
+        assertEquals("B+", letterGrade.score)
+        assertEquals("84", letterGrade.percentScore)
+        assertEquals(3.33, letterGrade.gradePoint ?: 0.0, 1e-9)
+        assertEquals(2.0, letterGrade.credits ?: 0.0, 1e-9)
+        assertEquals("公共基础选修", letterGrade.courseNature)
+        assertEquals("CHM10201T", letterGrade.courseCode)
+        assertTrue(letterGrade.countedInGpa)
+
+        val numberGrade = grades.first { it.courseName == "大学英语2" }
+        assertEquals("82", numberGrade.score)
+        assertTrue(numberGrade.countedInGpa)
+
+        val passGrade = grades.first { it.courseName == "审美的历程" }
+        assertEquals("合格", passGrade.score)
+        assertEquals(0.0, passGrade.gradePoint ?: 0.0, 1e-9)
+        assertFalse(passGrade.countedInGpa)
+    }
+
+    @Test
+    fun parsesBuctStudentInfoFromGradeResponse() {
+        val json = """
+            {"items":[
+              {
+                "kcmc":"大学化学","cj":"B+","bfzcj":"84","xm":"刘义军",
+                "xh":"2025050094","bj":"电科2504","zymc":"电子科学与技术",
+                "jgmc":"数理学院"
+              }
+            ]}
+        """.trimIndent()
+
+        val student = JwParsers.parseStudentInfo(json)
+
+        assertEquals("刘义军", student?.name)
+        assertEquals("2025050094", student?.studentId)
+        assertEquals("电科2504", student?.className)
+        assertEquals("电子科学与技术", student?.major)
+        assertEquals("数理学院", student?.college)
+    }
+
+    @Test
+    fun parsesBuctExamArrangementsSortedByTime() {
+        val json = """
+            {"items":[
+              {
+                "kcmc":"大学物理B（I）","ksmc":"期末考试","kssj":"2026-07-04(08:00-10:00)",
+                "cdmc":"二教D-411","zwh":"5","jsxx":"2006500013/王维","ksfs":"笔试"
+              },
+              {
+                "kcmc":"数学分析A（II）","ksmc":"期末考试","kssj":"2026-06-26(08:00-10:00)",
+                "cdmc":"一教A阶-204","zwh":"5","ksfs":"笔试"
+              }
+            ]}
+        """.trimIndent()
+
+        val exams = JwParsers.parseExams(json)
+
+        assertEquals(2, exams.size)
+        assertEquals("数学分析A（II）", exams[0].courseName)
+        assertEquals("大学物理B（I）", exams[1].courseName)
+        assertEquals("2026-07-04(08:00-10:00)", exams[1].timeText)
+        assertEquals("二教D-411", exams[1].location)
+        assertEquals("5", exams[1].seat)
+        assertEquals("2006500013/王维", exams[1].invigilator)
+    }
+
+    @Test
+    fun extractsOfficialGpaFromStudyStatusPage() {
+        val html = """
+            <html><body>
+            <a class="clj" name="showGpa"> 平均学分绩点</a>（GPA）： 
+            <font size="2px" style="color: red;"> 3.53 &nbsp; </font>
+            </body></html>
+        """.trimIndent()
+
+        assertEquals(3.53, requireNotNull(JwParsers.extractOfficialGpa(html)), 1e-9)
+        assertNull(JwParsers.extractOfficialGpa("<html>登录页面，无绩点数据</html>"))
+    }
+
+    @Test
+    fun computesWeightedGpaFromCountedCoursesOnly() {
+        val grades = listOf(
+            BuctGrade(
+                courseName = "课程A", score = "90", percentScore = "90",
+                gradePoint = 4.0, credits = 3.0, semesterName = "2025-2026",
+                courseNature = "", courseCategory = "", examMethod = "",
+                courseCode = "", teachingClass = "", countedInGpa = true
+            ),
+            BuctGrade(
+                courseName = "课程B", score = "80", percentScore = "80",
+                gradePoint = 3.0, credits = 2.0, semesterName = "2025-2026",
+                courseNature = "", courseCategory = "", examMethod = "",
+                courseCode = "", teachingClass = "", countedInGpa = true
+            ),
+            BuctGrade(
+                courseName = "课程C", score = "合格", percentScore = "60",
+                gradePoint = 0.0, credits = 1.5, semesterName = "2025-2026",
+                courseNature = "", courseCategory = "", examMethod = "",
+                courseCode = "", teachingClass = "", countedInGpa = false
+            ),
+            BuctGrade(
+                courseName = "课程D", score = "合格", percentScore = "60",
+                gradePoint = null, credits = 1.0, semesterName = "2025-2026",
+                courseNature = "", courseCategory = "", examMethod = "",
+                courseCode = "", teachingClass = "", countedInGpa = true
+            )
+        )
+
+        val result = computeWeightedGpa(grades)
+
+        assertEquals(3.6, requireNotNull(result).first, 1e-9)
+        assertEquals(5.0, result.second, 1e-9)
+        assertNull(computeWeightedGpa(emptyList()))
     }
 
 }

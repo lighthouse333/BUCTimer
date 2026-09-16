@@ -52,6 +52,7 @@ fun ClassScheduleApp(
     viewModel: TimetableViewModel,
     todoViewModel: TodoViewModel,
     pomodoroViewModel: PomodoroViewModel,
+    academicsViewModel: AcademicsViewModel,
     foregroundEntry: Int
 ) {
     var destination by rememberSaveable { mutableStateOf(AppDestination.TIMETABLE) }
@@ -96,7 +97,8 @@ fun ClassScheduleApp(
                     AppDestination.TIMETABLE -> TimetableScreen(
                         viewModel = viewModel,
                         foregroundEntry = foregroundEntry,
-                        onOpenSettings = { destination = AppDestination.SETTINGS }
+                        onOpenSettings = { destination = AppDestination.SETTINGS },
+                        onJwLoginSuccess = academicsViewModel::refresh
                     )
                     AppDestination.POMODORO -> PomodoroScreen(
                         state = pomodoroState,
@@ -106,7 +108,7 @@ fun ClassScheduleApp(
                         onUpdateGoal = pomodoroViewModel::updateGoal,
                         onDeleteGoal = pomodoroViewModel::deleteGoal
                     )
-                    AppDestination.ACADEMICS -> AcademicsComingSoonScreen()
+                    AppDestination.ACADEMICS -> AcademicsScreen(viewModel = academicsViewModel)
                     AppDestination.SETTINGS -> AboutSettingsScreen(
                         updateState = updateState,
                         automaticUpdateChecks = automaticUpdateChecks,
@@ -133,33 +135,5 @@ fun ClassScheduleApp(
             },
             onUpdateLater = viewModel::dismissUpdatePrompt
         )
-    }
-}
-
-@Composable
-private fun AcademicsComingSoonScreen() {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        Text("学业", style = MaterialTheme.typography.headlineSmall)
-        Text(
-            text = "北化教务信息服务正在建设中",
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        listOf("考试查询", "成绩查询", "绩点查询").forEach { feature ->
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-            ) {
-                Text(feature, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    text = "开发中，敬请期待",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-        }
     }
 }

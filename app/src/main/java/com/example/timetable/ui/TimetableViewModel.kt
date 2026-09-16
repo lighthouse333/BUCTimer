@@ -354,6 +354,15 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
     fun savedJwSession(): String? = jwSessionStore.loadCookies()
 
     fun importOnlineTimetable(cookies: String, studentId: String, year: Int, semester: Int) {
+        if (cookies.isBlank()) {
+            _timetableImportState.value =
+                TimetableImportState.Error("未获取到登录会话，请重新登录")
+            return
+        }
+        // 登录成功即保存会话与学号（即使课表拉取失败也保留），
+        // 便于学业页立即复用同一会话查询成绩与考试
+        jwSessionStore.saveCookies(cookies)
+        jwSessionStore.saveStudentId(studentId)
         viewModelScope.launch {
             _timetableImportState.value = TimetableImportState.Loading("正在在线拉取课表……")
             _timetableImportState.value = try {
@@ -362,9 +371,14 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
                         "无效的学期代码：$semester"
                     }
                     val json = JwApiClient.fetchSchedule(cookies, studentId, year, xqm)
+                    val sessionStudentId = BuctJsonTimetableParser.studentIdOf(json)
+                    if (sessionStudentId != null && sessionStudentId != studentId) {
+                        throw IllegalStateException(
+                            "登录账号（$sessionStudentId）与所填学号（$studentId）不一致，请重新登录"
+                        )
+                    }
                     BuctJsonTimetableParser.parseBuctJson(json, MAX_IMPORT_WEEKS)
                 }
-                jwSessionStore.saveCookies(cookies)
                 TimetableImportState.Success(parsed)
             } catch (error: Exception) {
                 TimetableImportState.Error(error.message ?: "课表查询失败")

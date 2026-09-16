@@ -121,7 +121,6 @@ fun TimetableScreen(
     var showLoginFailedDialog by remember { mutableStateOf(false) }
     var onlineImportStudentId by remember { mutableStateOf("") }
     var onlineImportPassword by remember { mutableStateOf("") }
-    var onlineImportRemember by remember { mutableStateOf(false) }
     var onlineImportYear by remember { mutableStateOf(LocalDate.now(ZoneId.systemDefault()).year) }
     var onlineImportSemester by remember { mutableStateOf(1) }
     var timetablePendingRename by remember { mutableStateOf<TimetableEntity?>(null) }
@@ -389,10 +388,9 @@ fun TimetableScreen(
                 savedStudentId = viewModel.savedJwStudentId().orEmpty(),
                 savedPassword = viewModel.savedJwPassword().orEmpty(),
                 onDismiss = { showOnlineImportDialog = false },
-                onLogin = { studentId, year, semester, password, remember ->
+                onLogin = { studentId, year, semester, password ->
                     onlineImportStudentId = studentId
                     onlineImportPassword = password
-                    onlineImportRemember = remember
                     onlineImportYear = year
                     onlineImportSemester = semester
                     showOnlineImportDialog = false
@@ -417,16 +415,12 @@ fun TimetableScreen(
                 },
                 onLoginSuccess = { cookies ->
                     showOnlineImportWeb = false
-                    val pwd = onlineImportPassword
-                    val remember = onlineImportRemember
                     onlineImportPassword = ""
                     viewModel.importOnlineTimetable(
                         cookies,
                         onlineImportStudentId,
                         onlineImportYear,
-                        onlineImportSemester,
-                        password = pwd,
-                        rememberCredentials = remember
+                        onlineImportSemester
                     )
                     onJwLoginSuccess()
                 },
@@ -1113,12 +1107,11 @@ private fun OnlineImportInfoDialog(
     savedStudentId: String,
     savedPassword: String,
     onDismiss: () -> Unit,
-    onLogin: (studentId: String, year: Int, semester: Int, password: String, remember: Boolean) -> Unit,
+    onLogin: (studentId: String, year: Int, semester: Int, password: String) -> Unit,
     onUseSavedSession: (studentId: String, year: Int, semester: Int) -> Unit
 ) {
     var studentId by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var rememberCredentials by remember { mutableStateOf(savedPassword.isNotEmpty()) }
     var showPassword by remember { mutableStateOf(false) }
     var askFillConfirm by remember { mutableStateOf(false) }
     var fillAnsweredForId by remember { mutableStateOf("") }
@@ -1165,16 +1158,6 @@ private fun OnlineImportInfoDialog(
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { rememberCredentials = !rememberCredentials }
-                ) {
-                    Checkbox(
-                        checked = rememberCredentials,
-                        onCheckedChange = { rememberCredentials = it }
-                    )
-                    Text("记住账号密码（加密保存在本机，可在设置中删除）")
-                }
                 OutlinedTextField(
                     value = year,
                     onValueChange = { year = it },
@@ -1210,8 +1193,7 @@ private fun OnlineImportInfoDialog(
                             studentId.trim(),
                             yearValue!!,
                             semester,
-                            password,
-                            rememberCredentials
+                            password
                         )
                     }
                 ) { Text(if (hasSavedSession) "重新登录" else "登录") }
@@ -1228,7 +1210,6 @@ private fun OnlineImportInfoDialog(
             confirmButton = {
                 TextButton(onClick = {
                     password = savedPassword
-                    rememberCredentials = true
                     fillAnsweredForId = studentId.trim()
                     askFillConfirm = false
                 }) { Text("填充") }

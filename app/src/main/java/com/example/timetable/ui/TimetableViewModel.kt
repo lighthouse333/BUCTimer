@@ -369,9 +369,7 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
         cookies: String,
         studentId: String,
         year: Int,
-        semester: Int,
-        password: String? = null,
-        rememberCredentials: Boolean = false
+        semester: Int
     ) {
         if (cookies.isBlank()) {
             _timetableImportState.value =
@@ -379,14 +377,10 @@ class TimetableViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
         // 登录成功即保存会话与学号（即使课表拉取失败也保留），
-        // 便于学业页立即复用同一会话查询成绩与考试
+        // 便于学业页立即复用同一会话查询成绩与考试。
+        // 注意：不在此处读写已保存的账号密码，凭据仅在设置中手动管理。
         jwSessionStore.saveCookies(cookies)
         jwSessionStore.saveStudentId(studentId)
-        if (rememberCredentials && !password.isNullOrBlank()) {
-            jwCredentialStore.save(studentId, password)
-        } else if (!rememberCredentials) {
-            jwCredentialStore.clear()
-        }
         viewModelScope.launch {
             _timetableImportState.value = TimetableImportState.Loading("正在在线拉取课表……")
             _timetableImportState.value = try {

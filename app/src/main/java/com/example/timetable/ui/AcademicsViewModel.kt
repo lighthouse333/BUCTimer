@@ -61,12 +61,7 @@ class AcademicsViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun clearSavedJwCredentials() = jwCredentialStore.clear()
 
-    fun onLoginSuccess(
-        cookies: String,
-        studentId: String,
-        password: String? = null,
-        rememberCredentials: Boolean = false
-    ) {
+    fun onLoginSuccess(cookies: String, studentId: String) {
         if (cookies.isBlank()) {
             _state.value = AcademicsState.Failed(
                 message = "未获取到登录会话，请重新登录",
@@ -74,13 +69,9 @@ class AcademicsViewModel(application: Application) : AndroidViewModel(applicatio
             )
             return
         }
+        // 只保存会话与学号；账号密码凭据仅在设置页手动管理
         jwSessionStore.saveCookies(cookies)
         jwSessionStore.saveStudentId(studentId)
-        if (rememberCredentials && !password.isNullOrBlank()) {
-            jwCredentialStore.save(studentId, password)
-        } else if (!rememberCredentials) {
-            jwCredentialStore.clear()
-        }
         refresh()
     }
 

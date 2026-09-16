@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -58,7 +57,6 @@ fun AcademicsScreen(viewModel: AcademicsViewModel, modifier: Modifier = Modifier
     var showWebLogin by remember { mutableStateOf(false) }
     var loginStudentId by remember { mutableStateOf(viewModel.savedStudentId().orEmpty()) }
     var loginPassword by remember { mutableStateOf("") }
-    var loginRemember by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.autoLoadIfNeeded()
@@ -101,10 +99,9 @@ fun AcademicsScreen(viewModel: AcademicsViewModel, modifier: Modifier = Modifier
             savedStudentId = viewModel.savedJwStudentId().orEmpty(),
             savedPassword = viewModel.savedJwPassword().orEmpty(),
             onDismiss = { showLoginInfo = false },
-            onConfirm = { studentId, password, remember ->
+            onConfirm = { studentId, password ->
                 loginStudentId = studentId
                 loginPassword = password
-                loginRemember = remember
                 showLoginInfo = false
                 showWebLogin = true
             }
@@ -121,10 +118,8 @@ fun AcademicsScreen(viewModel: AcademicsViewModel, modifier: Modifier = Modifier
             },
             onLoginSuccess = { cookies ->
                 showWebLogin = false
-                val pwd = loginPassword
-                val remember = loginRemember
                 loginPassword = ""
-                viewModel.onLoginSuccess(cookies, loginStudentId, pwd, remember)
+                viewModel.onLoginSuccess(cookies, loginStudentId)
             },
             onLoginFailed = {
                 showWebLogin = false
@@ -140,11 +135,10 @@ private fun AcademicLoginDialog(
     savedStudentId: String,
     savedPassword: String,
     onDismiss: () -> Unit,
-    onConfirm: (studentId: String, password: String, remember: Boolean) -> Unit
+    onConfirm: (studentId: String, password: String) -> Unit
 ) {
     var studentId by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var rememberCredentials by remember { mutableStateOf(savedPassword.isNotEmpty()) }
     var showPassword by remember { mutableStateOf(false) }
     var askFillConfirm by remember { mutableStateOf(false) }
     var fillAnsweredForId by remember { mutableStateOf("") }
@@ -187,23 +181,13 @@ private fun AcademicLoginDialog(
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { rememberCredentials = !rememberCredentials }
-                ) {
-                    Checkbox(
-                        checked = rememberCredentials,
-                        onCheckedChange = { rememberCredentials = it }
-                    )
-                    Text("记住账号密码（加密保存在本机，可在设置中删除）")
-                }
             }
         },
         confirmButton = {
             TextButton(
                 enabled = studentId.isNotBlank() && password.isNotBlank(),
                 onClick = {
-                    onConfirm(studentId.trim(), password, rememberCredentials)
+                    onConfirm(studentId.trim(), password)
                 }
             ) { Text("登录") }
         },
@@ -220,7 +204,6 @@ private fun AcademicLoginDialog(
             confirmButton = {
                 TextButton(onClick = {
                     password = savedPassword
-                    rememberCredentials = true
                     fillAnsweredForId = studentId.trim()
                     askFillConfirm = false
                 }) { Text("填充") }

@@ -58,9 +58,7 @@ fun AcademicsScreen(viewModel: AcademicsViewModel, modifier: Modifier = Modifier
     var loginPassword by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
-        if (viewModel.savedStudentId() != null) {
-            viewModel.refresh()
-        }
+        viewModel.autoLoadIfNeeded()
     }
 
     Box(modifier = modifier.fillMaxSize()) {

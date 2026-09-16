@@ -83,6 +83,7 @@ class AcademicsViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
         val (year, semester) = _selectedSemester.value
+        android.util.Log.i("Academics", "refresh requested year=$year semester=$semester")
         viewModelScope.launch {
             _state.value = AcademicsState.Loading("正在查询成绩与考试安排……")
             _state.value = try {
@@ -141,6 +142,16 @@ class AcademicsViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun selectSemester(year: Int, semester: Int) {
         _selectedSemester.value = year to semester
+        refresh()
+    }
+
+    /**
+     * 进入学业页时调用：已有可展示数据（未切换学期）就直接复用，
+     * 仅在没有任何数据时自动查询一次。需要重新拉取时由用户点「刷新」。
+     */
+    fun autoLoadIfNeeded() {
+        val current = _state.value
+        if (current is AcademicsState.Ready || current is AcademicsState.Loading) return
         refresh()
     }
 

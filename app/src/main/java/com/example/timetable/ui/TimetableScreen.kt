@@ -245,7 +245,7 @@ fun TimetableScreen(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("北化教务系统导入（测试中）") },
+                        text = { Text("北化教务系统导入") },
                         onClick = {
                             showTopMenu = false
                             showOnlineImportDialog = true

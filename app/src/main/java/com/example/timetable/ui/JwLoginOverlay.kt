@@ -170,10 +170,6 @@ fun JwLoginOverlay(
                                 "AppleWebKit/537.36 (KHTML, like Gecko) " +
                                 "Chrome/120.0.0.0 Safari/537.36"
                         CookieManager.getInstance().setAcceptCookie(true)
-                        // 清除上个账号遗留的登录会话，保证每个新用户都从
-                        // 统一认证登录页开始，可输入任意账号密码
-                        CookieManager.getInstance().removeAllCookies(null)
-                        CookieManager.getInstance().flush()
                         webChromeClient = object : WebChromeClient() {
                             override fun onConsoleMessage(message: ConsoleMessage): Boolean {
                                 if (message.message() == "JWLOGIN_TIMEOUT" && !handled) {
@@ -239,7 +235,17 @@ fun JwLoginOverlay(
                                 handler?.cancel()
                             }
                         }
-                        loadUrl("$JW_WEB_BASE/")
+                    }.also { web ->
+                        // 清除上个账号遗留的登录会话并等待删除完成再开始加载，
+                        // 否则 WebView 会带着旧会话直接进入旧账号的教务系统
+                        val manager = CookieManager.getInstance()
+                        if (android.os.Build.VERSION.SDK_INT >= 21) {
+                            manager.removeAllCookies { web.loadUrl("$JW_WEB_BASE/") }
+                        } else {
+                            @Suppress("DEPRECATION")
+                            manager.removeAllCookie()
+                            web.loadUrl("$JW_WEB_BASE/")
+                        }
                     }
                 }
             )

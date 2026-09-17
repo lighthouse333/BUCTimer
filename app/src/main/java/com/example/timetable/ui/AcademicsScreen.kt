@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +49,9 @@ import com.example.timetable.jw.BuctExam
 import com.example.timetable.jw.BuctGrade
 import com.example.timetable.jw.BuctStudentInfo
 import java.text.DecimalFormat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun AcademicsScreen(viewModel: AcademicsViewModel, modifier: Modifier = Modifier) {
@@ -87,7 +91,7 @@ fun AcademicsScreen(viewModel: AcademicsViewModel, modifier: Modifier = Modifier
             is AcademicsState.Ready -> AcademicsContent(
                 current = current,
                 modifier = Modifier.fillMaxSize(),
-                onRefresh = viewModel::refresh,
+                onRefreshSelection = viewModel::refreshSelection,
                 onLogout = viewModel::logout,
                 onSelectSemester = viewModel::selectSemester
             )
@@ -254,7 +258,7 @@ private fun FailedPanel(
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = if (sessionExpired) "登录会话已过期" else "查询失败",
+            text = if (sessionExpired) "需要重新登录" else "查询失败",
             style = MaterialTheme.typography.titleMedium
         )
         Spacer(Modifier.height(8.dp))
@@ -264,10 +268,14 @@ private fun FailedPanel(
             style = MaterialTheme.typography.bodyMedium
         )
         Spacer(Modifier.height(20.dp))
-        if (sessionExpired) {
-            Button(onClick = onRelogin) { Text("重新登录") }
-        } else {
-            Button(onClick = onRetry) { Text("重试") }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (sessionExpired) {
+                Button(onClick = onRelogin) { Text("重新登录") }
+                TextButton(onClick = onRetry) { Text("重试") }
+            } else {
+                Button(onClick = onRetry) { Text("重试") }
+                TextButton(onClick = onRelogin) { Text("重新登录") }
+            }
         }
     }
 }
@@ -276,12 +284,12 @@ private fun FailedPanel(
 private fun AcademicsContent(
     current: AcademicsState.Ready,
     modifier: Modifier = Modifier,
-    onRefresh: () -> Unit,
+    onRefreshSelection: (year: Int, semester: Int) -> Unit,
     onLogout: () -> Unit,
     onSelectSemester: (year: Int, semester: Int) -> Unit
 ) {
     var activeTab by remember { mutableIntStateOf(0) }
-    var yearText by remember(current.year) {
+    var yearText by rememberSaveable(current.year) {
         mutableStateOf(current.year.toString())
     }
 
@@ -293,7 +301,19 @@ private fun AcademicsContent(
         item {
             StudentCard(
                 student = current.student,
-                onRefresh = onRefresh,
+                loadedAt = current.loadedAt,
+                fromCache = current.fromCache,
+                onRefresh = {
+                    // 刷新同样提交屏幕上已编辑的学年起始年，避免"改了年份点刷新没用"
+                    val parsed = yearText.trim().toIntOrNull()
+                    if (parsed != null) {
+                        yearText = parsed.toString()
+                        onRefreshSelection(parsed, current.semester)
+                    } else {
+                        yearText = current.year.toString()
+                        onRefreshSelection(current.year, current.semester)
+                    }
+                },
                 onLogout = onLogout
             )
         }
@@ -308,12 +328,23 @@ private fun AcademicsContent(
                 yearText = yearText,
                 semester = current.semester,
                 onYearChange = { yearText = it },
-                onYearConfirm = { year ->
-                    yearText = year
-                    year.toIntOrNull()?.let { onSelectSemester(it, current.semester) }
+                onQuery = {
+                    yearText.trim().toIntOrNull()?.let { parsed ->
+                        yearText = parsed.toString()
+                        onSelectSemester(parsed, current.semester)
+                    } ?: run {
+                        // 无效年份不查询，还原为当前已查询的学年起始年
+                        yearText = current.year.toString()
+                    }
                 },
                 onSemesterChange = { semester ->
-                    yearText.toIntOrNull()?.let { onSelectSemester(it, semester) }
+                    val parsed = yearText.trim().toIntOrNull()
+                    if (parsed != null) {
+                        onSelectSemester(parsed, semester)
+                    } else {
+                        yearText = current.year.toString()
+                        onSelectSemester(current.year, semester)
+                    }
                 }
             )
         }
@@ -357,6 +388,8 @@ private fun AcademicsContent(
 @Composable
 private fun StudentCard(
     student: BuctStudentInfo?,
+    loadedAt: Long?,
+    fromCache: Boolean,
     onRefresh: () -> Unit,
     onLogout: () -> Unit
 ) {
@@ -390,10 +423,22 @@ private fun StudentCard(
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                TextButton(onClick = onRefresh) { Text("刷新") }
-                TextButton(onClick = onLogout) { Text("退出登录") }
+                loadedAt?.let { at ->
+                    val time = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+                        .format(Date(at))
+                    Text(
+                        if (fromCache) "本地缓存 · $time" else "更新于 $time",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp
+                    )
+                }
+                Row {
+                    TextButton(onClick = onRefresh) { Text("刷新") }
+                    TextButton(onClick = onLogout) { Text("退出登录") }
+                }
             }
         }
     }
@@ -446,19 +491,25 @@ private fun SemesterSelector(
     yearText: String,
     semester: Int,
     onYearChange: (String) -> Unit,
-    onYearConfirm: (String) -> Unit,
+    onQuery: () -> Unit,
     onSemesterChange: (Int) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = yearText,
-            onValueChange = onYearChange,
-            label = { Text("学年起始年") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { onYearConfirm(yearText) }),
-            modifier = Modifier.width(160.dp)
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = yearText,
+                onValueChange = onYearChange,
+                label = { Text("学年起始年") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { onQuery() }),
+                modifier = Modifier.width(160.dp)
+            )
+            Button(onClick = onQuery) { Text("查询") }
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             listOf(1 to "秋冬", 2 to "春夏", 3 to "暑假").forEach { (code, label) ->
                 Row(

@@ -3,6 +3,7 @@ package com.example.timetable.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.timetable.jw.AcademicsCacheStore
 import com.example.timetable.jw.BuctExam
 import com.example.timetable.jw.BuctGrade
 import com.example.timetable.jw.BuctStudentInfo
@@ -32,7 +33,11 @@ sealed interface AcademicsState {
         val exams: List<BuctExam>,
         val officialGpa: Double?,
         val computedGpa: Double?,
-        val computedGpaCredits: Double
+        val computedGpaCredits: Double,
+        /** 数据获取时间；来自缓存时为缓存保存时间，正在联网查询后为查询完成时间。 */
+        val loadedAt: Long?,
+        /** 是否为上次查询保存的本地缓存（而非本次联网请求的结果）。 */
+        val fromCache: Boolean
     ) : AcademicsState
 
     data class Failed(
@@ -48,10 +53,23 @@ sealed interface AcademicsState {
 class AcademicsViewModel(application: Application) : AndroidViewModel(application) {
     private val jwSessionStore = JwSessionStore(application)
     private val jwCredentialStore = com.example.timetable.jw.JwCredentialStore(application)
+    private val cacheStore = AcademicsCacheStore(application)
     private val _state = MutableStateFlow<AcademicsState>(AcademicsState.LoggedOut)
     val state: StateFlow<AcademicsState> = _state.asStateFlow()
     private val _selectedSemester = MutableStateFlow(defaultSemesterSelection())
     val selectedSemester: StateFlow<Pair<Int, Int>> = _selectedSemester.asStateFlow()
+
+    init {
+        // 启动即恢复上次关闭时的学年/学期选择及其缓存，无需再次请求教务系统
+        val studentId = jwSessionStore.loadStudentId()
+        if (studentId != null) {
+            cacheStore.loadSelection(studentId)?.let { _selectedSemester.value = it }
+            val (year, semester) = _selectedSemester.value
+            cacheStore.loadEntry(studentId, year, semester)?.let { entry ->
+                _state.value = readyFromCache(entry, year, semester)
+            }
+        }
+    }
 
     fun savedStudentId(): String? = jwSessionStore.loadStudentId()
 
@@ -72,6 +90,9 @@ class AcademicsViewModel(application: Application) : AndroidViewModel(applicatio
         // 只保存会话与学号；账号密码凭据仅在设置页手动管理
         jwSessionStore.saveCookies(cookies)
         jwSessionStore.saveStudentId(studentId)
+        // 恢复该账号上次关闭时的学年/学期选择，无记录时回到默认学期
+        _selectedSemester.value =
+            cacheStore.loadSelection(studentId) ?: defaultSemesterSelection()
         refresh()
     }
 
@@ -124,6 +145,18 @@ class AcademicsViewModel(application: Application) : AndroidViewModel(applicatio
                     )
                 }
                 val local = computeWeightedGpa(data.grades)
+                val savedAt = System.currentTimeMillis()
+                cacheStore.saveEntry(
+                    studentId, year, semester,
+                    AcademicsCacheStore.Entry(
+                        student = data.student,
+                        grades = data.grades,
+                        exams = data.exams,
+                        officialGpa = data.officialGpa,
+                        savedAt = savedAt
+                    )
+                )
+                cacheStore.saveSelection(studentId, year, semester)
                 AcademicsState.Ready(
                     student = data.student,
                     year = year,
@@ -132,7 +165,9 @@ class AcademicsViewModel(application: Application) : AndroidViewModel(applicatio
                     exams = data.exams,
                     officialGpa = data.officialGpa,
                     computedGpa = local?.first,
-                    computedGpaCredits = local?.second ?: 0.0
+                    computedGpaCredits = local?.second ?: 0.0,
+                    loadedAt = savedAt,
+                    fromCache = false
                 )
             } catch (error: JwSessionExpiredException) {
                 AcademicsState.Failed(
@@ -148,13 +183,31 @@ class AcademicsViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /**
+     * 「查询」所选学年/学期：已有该学期缓存时直接展示缓存（不联网），
+     * 没有缓存才联网查询；成功后写入缓存并记住该选择。
+     */
     fun selectSemester(year: Int, semester: Int) {
         _selectedSemester.value = year to semester
+        val studentId = jwSessionStore.loadStudentId()
+        if (studentId != null) cacheStore.saveSelection(studentId, year, semester)
+        val cached = studentId?.let { cacheStore.loadEntry(it, year, semester) }
+        if (cached != null) {
+            _state.value = readyFromCache(cached, year, semester)
+            return
+        }
+        refresh()
+    }
+
+    /** 「刷新」：先提交屏幕上的学年/学期选择，再强制联网重新拉取最新数据。 */
+    fun refreshSelection(year: Int, semester: Int) {
+        _selectedSemester.value = year to semester
+        jwSessionStore.loadStudentId()?.let { cacheStore.saveSelection(it, year, semester) }
         refresh()
     }
 
     /**
-     * 进入学业页时调用：已有可展示数据（未切换学期）就直接复用，
+     * 进入学业页时调用：已有可展示数据（含缓存恢复的）就直接复用，
      * 仅在没有任何数据时自动查询一次。需要重新拉取时由用户点「刷新」。
      */
     fun autoLoadIfNeeded() {
@@ -164,8 +217,30 @@ class AcademicsViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun logout() {
+        jwSessionStore.loadStudentId()?.let { cacheStore.clearFor(it) }
         jwSessionStore.clear()
+        _selectedSemester.value = defaultSemesterSelection()
         _state.value = AcademicsState.LoggedOut
+    }
+
+    private fun readyFromCache(
+        entry: AcademicsCacheStore.Entry,
+        year: Int,
+        semester: Int
+    ): AcademicsState.Ready {
+        val local = computeWeightedGpa(entry.grades)
+        return AcademicsState.Ready(
+            student = entry.student,
+            year = year,
+            semester = semester,
+            grades = entry.grades,
+            exams = entry.exams,
+            officialGpa = entry.officialGpa,
+            computedGpa = local?.first,
+            computedGpaCredits = local?.second ?: 0.0,
+            loadedAt = entry.savedAt,
+            fromCache = true
+        )
     }
 
     private data class GradeExamsResult(
